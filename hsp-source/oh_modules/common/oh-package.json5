@@ -1,0 +1,9 @@
+{
+  "name": "common",
+  "version": "1.0.0",
+  "description": "洛雪音乐公共基础模块",
+  "main": "Index.ets",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
