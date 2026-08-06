@@ -20,10 +20,29 @@ struct Index {
   @State currentPage: string = 'NowPlaying'
   private navPathStack: NavPathStack = new NavPathStack()
   private player: PlayerEngine = PlayerEngine.getInstance()
+  // MiniPlayerBar 状态快照（轮询同步）
+  @State barSongName: string = ''
+  @State barSinger: string = ''
+  @State barIsPlaying: boolean = false
+  private barSyncTimer: number = -1
 
   aboutToAppear(): void {
     // 默认显示正在播放页
     this.navPathStack.pushPathByName('NowPlaying', null)
+    // 迷你播放条状态同步
+    this.barSyncTimer = setInterval(() => {
+      const song = this.player.currentSong
+      this.barSongName = song?.name ?? ''
+      this.barSinger = song?.singer ?? ''
+      this.barIsPlaying = this.player.status === PlayerStatus.PLAYING
+    }, 500)
+  }
+
+  aboutToDisappear(): void {
+    if (this.barSyncTimer >= 0) {
+      clearInterval(this.barSyncTimer)
+      this.barSyncTimer = -1
+    }
   }
 
   build() {
@@ -83,14 +102,14 @@ struct Index {
   /** 底部迷你播放条 — 始终可见，显示当前歌曲和基本控制 */
   @Builder
   MiniPlayerBar() {
-    if (this.player.currentSong) {
+    if (this.barSongName) {
       Row() {
         // 歌曲信息（点击回到正在播放页）
         Row({ space: 8 }) {
-          Text(this.player.currentSong!.name)
+          Text(this.barSongName)
             .fontSize(14).fontColor('#cdd6f4').maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(`- ${this.player.currentSong!.singer}`)
+          Text(`- ${this.barSinger}`)
             .fontSize(12).fontColor('#6c7086').maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
@@ -101,7 +120,7 @@ struct Index {
         })
 
         // 播放控制
-        Text(this.player.status === PlayerStatus.PLAYING ? '⏸' : '▶️')
+        Text(this.barIsPlaying ? '⏸' : '▶️')
           .fontSize(22)
           .fontColor('#a6e3a1')
           .padding({ left: 8, right: 8 })
@@ -162,7 +181,36 @@ struct Index {
 // ============================================================
 @Component
 struct NowPlayingContent {
-  @State player: PlayerEngine = PlayerEngine.getInstance()
+  private player: PlayerEngine = PlayerEngine.getInstance()
+  // 播放器状态快照（@Observed 已移除，用轮询同步驱动 UI 刷新）
+  @State currentSongName: string = '未在播放'
+  @State currentSinger: string = '选择一首歌曲开始播放吧~'
+  @State status: PlayerStatus = PlayerStatus.IDLE
+  @State currentProgress: number = 0
+  @State duration: number = 0
+  @State lyrics: LyricLine[] = []
+  @State mode: PlayMode = PlayMode.SEQUENCE
+  private syncTimer: number = -1
+
+  aboutToAppear(): void {
+    // 每 500ms 同步播放器状态到 @State（驱动 UI 刷新）
+    this.syncTimer = setInterval(() => {
+      this.currentSongName = this.player.currentSong?.name ?? '未在播放'
+      this.currentSinger = this.player.currentSong?.singer ?? '选择一首歌曲开始播放吧~'
+      this.status = this.player.status
+      this.currentProgress = this.player.currentProgress
+      this.duration = this.player.duration
+      this.lyrics = this.player.lyrics
+      this.mode = this.player.queue.mode
+    }, 500)
+  }
+
+  aboutToDisappear(): void {
+    if (this.syncTimer >= 0) {
+      clearInterval(this.syncTimer)
+      this.syncTimer = -1
+    }
+  }
 
   build() {
     NavDestination() {
@@ -175,12 +223,12 @@ struct NowPlayingContent {
             .borderRadius(12)
             .objectFit(ImageFit.Cover)
 
-          Text(this.player.currentSong?.name ?? '未在播放')
+          Text(this.currentSongName)
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
             .fontColor('#cdd6f4')
 
-          Text(this.player.currentSong?.singer ?? '选择一首歌曲开始播放吧~')
+          Text(this.currentSinger)
             .fontSize(15)
             .fontColor('#6c7086')
         }
@@ -188,16 +236,16 @@ struct NowPlayingContent {
 
         // 进度条
         Row({ space: 12 }) {
-          Text(this.formatTime(this.player.currentProgress))
+          Text(this.formatTime(this.currentProgress))
             .fontSize(12).fontColor('#585b70')
           Slider({
-            value: this.player.duration > 0 ? this.player.currentProgress / this.player.duration : 0
+            value: this.duration > 0 ? this.currentProgress / this.duration : 0
           })
             .width('60%')
             .onChange((value: number) => {
-              this.player.seekTo(value * this.player.duration)
+              this.player.seekTo(value * this.duration)
             })
-          Text(this.formatTime(this.player.duration))
+          Text(this.formatTime(this.duration))
             .fontSize(12).fontColor('#585b70')
         }
         .width('100%')
@@ -207,7 +255,7 @@ struct NowPlayingContent {
         // 播放控制
         Row({ space: 24 }) {
           Text('⏮').fontSize(28).onClick(() => this.player.previous())
-          Text(this.player.status === PlayerStatus.PLAYING ? '⏸' : '▶️')
+          Text(this.status === PlayerStatus.PLAYING ? '⏸' : '▶️')
             .fontSize(36).onClick(() => this.player.togglePlay())
           Text('⏭').fontSize(28).onClick(() => this.player.next())
         }
@@ -219,14 +267,14 @@ struct NowPlayingContent {
           Text(this.getModeIcon()).fontSize(16).fontColor('#89b4fa')
             .onClick(() => {
               const modes = [PlayMode.SEQUENCE, PlayMode.LOOP_ONE, PlayMode.LOOP_ALL, PlayMode.SHUFFLE]
-              const idx = (modes.indexOf(this.player.queue.mode) + 1) % modes.length
+              const idx = (modes.indexOf(this.mode) + 1) % modes.length
               this.player.setPlayMode(modes[idx])
             })
         }
         .width('100%').justifyContent(FlexAlign.Center).padding({ bottom: 8 })
 
         // 歌词
-        LyricView({ lyrics: this.player.lyrics, currentProgress: this.player.currentProgress })
+        LyricView({ lyrics: this.lyrics, currentProgress: this.currentProgress })
           .layoutWeight(1)
       }
       .width('100%')
