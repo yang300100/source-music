@@ -24,8 +24,8 @@ export interface SourceInstance {
   isNative: boolean
 
   search(query: string, page: number, quality: MusicQuality): Promise<SearchResult>
-  getMusicInfo(songmid: string, quality: MusicQuality): Promise<MusicItem>
-  getLyric(songmid: string): Promise<LyricLine[]>
+  getMusicInfo(songmid: string, quality: MusicQuality, fullSong?: MusicItem): Promise<MusicItem>
+  getLyric(songmid: string, fullSong?: MusicItem): Promise<LyricLine[]>
   getPlaylistInfo(listid: string): Promise<PlaylistInfo>
   getHotSearch(): Promise<HotSearchItem[]>
 }

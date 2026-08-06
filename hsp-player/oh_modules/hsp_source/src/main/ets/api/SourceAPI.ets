@@ -25,8 +25,8 @@ export abstract class BaseSource implements SourceInstance {
   }
 
   abstract search(query: string, page: number, quality: MusicQuality): Promise<SearchResult>
-  abstract getMusicInfo(songmid: string, quality: MusicQuality): Promise<MusicItem>
-  abstract getLyric(songmid: string): Promise<LyricLine[]>
+  abstract getMusicInfo(songmid: string, quality: MusicQuality, fullSong?: MusicItem): Promise<MusicItem>
+  abstract getLyric(songmid: string, fullSong?: MusicItem): Promise<LyricLine[]>
   abstract getPlaylistInfo(listid: string): Promise<PlaylistInfo>
   abstract getHotSearch(): Promise<HotSearchItem[]>
 

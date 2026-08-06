@@ -288,7 +288,8 @@ export class SourceManager {
   async getMusicInfoWithFallback(
     songmid: string,
     sourceType: SourceType,
-    quality: MusicQuality = MusicQuality.HIGH
+    quality: MusicQuality = MusicQuality.HIGH,
+    fullSong?: MusicItem
   ): Promise<MusicItem | null> {
     const enabled = this.getEnabledSources()
 
@@ -296,7 +297,7 @@ export class SourceManager {
     const primary = enabled.find(s => s.info.type === sourceType)
     if (primary) {
       try {
-        return await primary.getMusicInfo(songmid, quality)
+        return await primary.getMusicInfo(songmid, quality, fullSong)
       } catch (err) {
         LogUtils.warn(`主音源获取失败，尝试换源`, JSON.stringify(err))
       }
@@ -306,7 +307,7 @@ export class SourceManager {
     for (const source of enabled) {
       if (source.info.type === sourceType) continue
       try {
-        const info = await source.getMusicInfo(songmid, quality)
+        const info = await source.getMusicInfo(songmid, quality, fullSong)
         if (info) return info
       } catch (err) {
         continue

@@ -485,12 +485,11 @@ export class JSScriptSource extends BaseSource {
     return { list: list, total: total, limit: 30, page: page, source: this.info.type }
   }
 
-  /** 获取播放 URL */
-  async getMusicInfo(songmid: string, quality: MusicQuality): Promise<MusicItem> {
+  /** 获取播放 URL（对齐原版：info: { type, musicInfo: 完整歌曲对象 }） */
+  async getMusicInfo(songmid: string, quality: MusicQuality, fullSong?: MusicItem): Promise<MusicItem> {
     const musicInfo: Record<string, Object> = {}
-    musicInfo['songmid'] = songmid
-    musicInfo['id'] = songmid
-    musicInfo['quality'] = String(quality)
+    musicInfo['type'] = String(quality)
+    musicInfo['musicInfo'] = this.buildSongInfo(songmid, fullSong)
     const raw = await this.callAction('musicUrl', musicInfo)
     try {
       const parsed = JSON.parse(raw) as Record<string, Object>
@@ -506,12 +505,12 @@ export class JSScriptSource extends BaseSource {
       types[String(quality)] = { url: url, size: 0, br: 0 }
       return {
         songmid: songmid,
-        name: '',
-        singer: '',
-        albumName: '',
-        interval: 0,
-        imgUrl: '',
-        lyricUrl: '',
+        name: fullSong?.name ?? '',
+        singer: fullSong?.singer ?? '',
+        albumName: fullSong?.albumName ?? '',
+        interval: fullSong?.interval ?? 0,
+        imgUrl: fullSong?.imgUrl ?? '',
+        lyricUrl: fullSong?.lyricUrl ?? '',
         source: this.info.type,
         types: types
       }
@@ -520,11 +519,10 @@ export class JSScriptSource extends BaseSource {
     }
   }
 
-  /** 获取歌词 */
-  async getLyric(songmid: string): Promise<LyricLine[]> {
+  /** 获取歌词（对齐原版：info: { musicInfo }） */
+  async getLyric(songmid: string, fullSong?: MusicItem): Promise<LyricLine[]> {
     const lyricInfo: Record<string, Object> = {}
-    lyricInfo['songmid'] = songmid
-    lyricInfo['id'] = songmid
+    lyricInfo['musicInfo'] = this.buildSongInfo(songmid, fullSong)
     const raw = await this.callAction('lyric', lyricInfo)
     try {
       const parsed = JSON.parse(raw) as Record<string, Object>
@@ -536,6 +534,22 @@ export class JSScriptSource extends BaseSource {
     } catch (err) {
       return []
     }
+  }
+
+  /** 构造原版 LX.Music.MusicInfo 结构 */
+  private buildSongInfo(songmid: string, fullSong?: MusicItem): Record<string, Object> {
+    const song: Record<string, Object> = {}
+    song['id'] = songmid
+    song['songmid'] = songmid
+    song['hash'] = songmid
+    song['name'] = fullSong?.name ?? ''
+    song['singer'] = fullSong?.singer ?? ''
+    song['source'] = String(fullSong?.source ?? this.info.type)
+    song['interval'] = fullSong?.interval ?? 0
+    song['albumName'] = fullSong?.albumName ?? ''
+    song['imgUrl'] = fullSong?.imgUrl ?? ''
+    song['lyricUrl'] = fullSong?.lyricUrl ?? ''
+    return song
   }
 
   /** 获取歌单（暂不支持） */

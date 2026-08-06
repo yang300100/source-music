@@ -2,6 +2,7 @@ import { media } from '@kit.MediaKit'
 import { fileIo } from '@kit.CoreFileKit'
 import {
   MusicItem,
+  MusicQuality,
   PlayerStatus,
   PlayMode,
   SourceType,
@@ -137,7 +138,7 @@ export class PlayerEngine {
     try {
       // 从音源获取播放 URL（支持换源回退）
       const sourceMgr = SourceManager.getInstance()
-      const musicInfo = await sourceMgr.getMusicInfoWithFallback(song.songmid, song.source)
+      const musicInfo = await sourceMgr.getMusicInfoWithFallback(song.songmid, song.source, MusicQuality.HIGH, song)
       if (!musicInfo) {
         LogUtils.error('无法获取播放地址')
         this.status = PlayerStatus.ERROR
@@ -253,7 +254,7 @@ export class PlayerEngine {
       const sourceMgr = SourceManager.getInstance()
       const source = sourceMgr.getSourceById(String(song.source))
       if (source) {
-        this.lyrics = await source.getLyric(song.songmid)
+        this.lyrics = await source.getLyric(song.songmid, song)
       }
     } catch (err) {
       LogUtils.warn('歌词获取失败', JSON.stringify(err))
