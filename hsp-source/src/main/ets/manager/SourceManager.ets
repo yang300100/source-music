@@ -257,20 +257,22 @@ export class SourceManager {
     return true
   }
 
-  /** 开关音源（单选模式：搜索源互斥、JS 音源互斥） */
+  /** 开关音源（JS 音源单选互斥；搜索源始终启用） */
   async toggleSource(id: string, enabled: boolean): Promise<void> {
     const source = this.getSourceById(id)
     if (!source) return
+    // 搜索源固定启用（在搜索页选择使用范围，不在音源管理中开关）
+    if (this.isSearchSourceId(id)) {
+      source.enabled = true
+      await this.save()
+      return
+    }
 
     if (enabled) {
-      // 启用新源时，自动禁用同类型的其他源（单选）
+      // 启用 JS 音源时，自动禁用其他 JS 音源（单选）
       for (const s of this.sources) {
         if (s.info.id === id) continue
-        if (this.isSearchSourceId(id) && this.isSearchSourceId(s.info.id)) {
-          s.enabled = false
-        } else if (!this.isSearchSourceId(id) && !this.isSearchSourceId(s.info.id) &&
-          !this.isProtectedSourceId(s.info.id) && !s.isNative) {
-          // JS 音源互斥（内置源不受影响）
+        if (!this.isSearchSourceId(s.info.id) && !this.isProtectedSourceId(s.info.id) && !s.isNative) {
           s.enabled = false
         }
       }
@@ -286,8 +288,7 @@ export class SourceManager {
 
   /** 是否为受保护的内置源（不可禁用/删除） */
   isProtectedSourceId(id: string): boolean {
-    return id === 'kugou' || id === 'netease' || id === 'qqmusic' ||
-      id === 'local_source' || id === 'demo'
+    return this.isSearchSourceId(id) || id === 'local_source' || id === 'demo'
   }
 
   /** 获取搜索源列表（供搜索页选择器） */
@@ -295,17 +296,9 @@ export class SourceManager {
     return this.sources.filter(s => this.isSearchSourceId(s.info.id))
   }
 
-  /** 切换当前搜索源（单选） */
-  async setActiveSearchSource(id: string): Promise<void> {
-    await this.toggleSource(id, true)
-  }
-
-  /** 获取当前启用的搜索源（无则返回第一个） */
-  getActiveSearchSource(): SourceInstance | null {
-    const enabled = this.getSearchSources().find(s => s.enabled)
-    if (enabled) return enabled
-    const first = this.getSearchSources()[0]
-    return first ?? null
+  /** 获取音源管理列表（不含搜索源） */
+  getManageSources(): SourceInstance[] {
+    return this.sources.filter(s => !this.isSearchSourceId(s.info.id))
   }
 
   /** 按 ID 搜索单个音源 */

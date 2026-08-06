@@ -323,7 +323,7 @@ struct SearchContent {
 
   aboutToAppear(): void {
     SearchEngine.getHistory().then(h => { this.history = h })
-    // 加载搜索源列表（内置搜索源）
+    // 加载搜索源列表（内置搜索源），默认"全部"搜索
     const sources = SourceManager.getInstance().getSearchSources()
     const list: SearchSourceOption[] = []
     for (const s of sources) {
@@ -331,10 +331,7 @@ struct SearchContent {
       list.push(opt)
     }
     this.searchSources = list
-    const active = SourceManager.getInstance().getActiveSearchSource()
-    if (active) {
-      this.activeSourceId = active.info.id
-    }
+    this.activeSourceId = ''
   }
 
   build() {
@@ -448,10 +445,8 @@ struct SearchContent {
       .padding({ left: 12, right: 12, top: 4, bottom: 4 })
       .borderRadius(14)
       .onClick(() => {
+        // 选择器只管搜索范围，不影响音源启用状态（搜索源始终启用）
         this.activeSourceId = sourceId
-        if (sourceId) {
-          SourceManager.getInstance().setActiveSearchSource(sourceId)
-        }
         // 切换源后重新搜索
         if (this.keyword.trim()) {
           this.doSearch()
@@ -678,7 +673,8 @@ struct SourceManageContent {
   private manager: SourceManager = SourceManager.getInstance()
 
   aboutToAppear(): void {
-    this.sources = this.manager.getAllSources()
+    // 音源管理只显示 JS 音源和本地/演示（搜索源在搜索页选择）
+    this.sources = this.manager.getManageSources()
   }
 
   build() {
@@ -691,7 +687,7 @@ struct SourceManageContent {
             .onClick(() => {
               AlertDialog.show({
                 title: '导入音源',
-                message: '选择导入方式（支持 lx-music 社区 .js 音源脚本）',
+                message: '选择导入方式（支持 lx-music 社区 .js 音源脚本）\n提示：搜索源（酷狗/网易/QQ）在搜索页选择使用',
                 autoCancel: true,
                 alignment: DialogAlignment.Bottom,
                 primaryButton: {
@@ -715,25 +711,23 @@ struct SourceManageContent {
                   Text(source.info.name).fontSize(15).fontColor('#cdd6f4')
                   Text(`v${source.info.version} · ${source.info.author}`)
                     .fontSize(11).fontColor('#6c7086')
-                  // 音源类型标注：帮助用户理解音源能力
+                  // 音源类型标注
                   Text(this.getSourceTypeLabel(source.info.id, source.isNative))
                     .fontSize(10)
-                    .fontColor(source.info.id === 'kugou' ? '#a6e3a1' : '#89b4fa')
+                    .fontColor('#89b4fa')
                 }
                 .layoutWeight(1)
 
                 Toggle({ type: ToggleType.Switch, isOn: source.enabled })
-                  .enabled(source.info.id !== 'kugou' && source.info.id !== 'netease')
                   .onChange((isOn: boolean) => {
                     this.manager.toggleSource(source.info.id, isOn)
                   })
 
-                if (source.info.id !== 'demo' && source.info.id !== 'local_source' &&
-                  source.info.id !== 'kugou' && source.info.id !== 'netease') {
+                if (source.info.id !== 'demo' && source.info.id !== 'local_source') {
                   Text('🗑').fontSize(16)
                     .onClick(() => {
                       this.manager.removeSource(source.info.id)
-                      this.sources = this.manager.getAllSources()
+                      this.sources = this.manager.getManageSources()
                     })
                 }
               }
@@ -751,11 +745,9 @@ struct SourceManageContent {
 
   /** 音源类型标注（帮助用户理解音源能力） */
   private getSourceTypeLabel(id: string, isNative: boolean): string {
-    if (id === 'kugou') return '🔍 搜索 + 解析'
-    if (id === 'netease') return '🔍 搜索 + 歌词（VIP 歌曲换源解析）'
     if (id === 'local_source') return '📂 本地文件'
     if (id === 'demo') return '🧪 演示'
-    return isNative ? '🔧 原生音源' : '📜 JS 音源（多为解析型，搜索需酷狗/网易源）'
+    return '📜 JS 音源（解析型，搜索请用搜索页的搜索源选择）'
   }
 
   /** 从本地文件导入音源 */
@@ -775,7 +767,7 @@ struct SourceManageContent {
     } catch (err) {
       // 用户取消选择
     }
-    this.sources = this.manager.getAllSources()
+    this.sources = this.manager.getManageSources()
   }
 
   /** 从在线链接导入音源 */
@@ -800,7 +792,7 @@ struct SourceManageContent {
             } else {
               AlertDialog.show({ title: '导入失败', message: ret.error ?? '未知错误', autoCancel: true })
             }
-            this.sources = this.manager.getAllSources()
+            this.sources = this.manager.getManageSources()
           })
         }
       }
