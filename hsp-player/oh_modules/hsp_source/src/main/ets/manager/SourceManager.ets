@@ -17,6 +17,7 @@ import { LocalFileSource } from '../sources/LocalFileSource'
 import { JSSourceAdapter } from '../sources/JSSourceAdapter'
 import { JSSandbox } from '../sandbox/JSSandbox'
 import { fileIo } from '@kit.CoreFileKit'
+import { util } from '@kit.ArkTS'
 
 const STORAGE_KEY_SOURCES = 'source_list'
 
@@ -89,20 +90,22 @@ export class SourceManager {
   /** 从本地文件导入 JS 音源脚本 */
   private async importFromLocal(filePath: string): Promise<SourceImportResult> {
     LogUtils.info('导入本地音源', filePath)
+    let fd: fileIo.File | null = null
     try {
-      // 读取文件内容（支持 URI 或沙箱路径）
-      const fd = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
+      // 读取文件内容（DocumentViewPicker 返回的 URI 可直接 openSync）
+      fd = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
       const stat = fileIo.statSync(filePath)
+      if (stat.size <= 0) {
+        return { success: false, error: '文件为空或无法读取（大小为 0）' }
+      }
       const buf = new ArrayBuffer(stat.size)
       fileIo.readSync(fd.fd, buf)
       fileIo.closeSync(fd)
+      fd = null
 
-      // 将 ArrayBuffer 转为字符串
-      const uint8 = new Uint8Array(buf)
-      let scriptContent = ''
-      for (let i = 0; i < uint8.length; i++) {
-        scriptContent += String.fromCharCode(uint8[i])
-      }
+      // 使用 TextDecoder 解码为 UTF-8 字符串（避免手动转码乱码）
+      const decoder = util.TextDecoder.create('utf-8')
+      const scriptContent = decoder.decodeToString(new Uint8Array(buf))
 
       // 从 URI 或路径中提取文件名（用于兜底命名）
       const lastSlash = filePath.lastIndexOf('/')
@@ -111,8 +114,16 @@ export class SourceManager {
 
       return this.registerJSSource(scriptContent, fileName)
     } catch (err) {
-      LogUtils.error('读取本地音源文件失败', JSON.stringify(err))
-      return { success: false, error: `读取文件失败: ${JSON.stringify(err)}` }
+      if (fd) {
+        try {
+          fileIo.closeSync(fd)
+        } catch (e) {
+          // 忽略关闭失败
+        }
+      }
+      const errMsg = JSON.stringify(err)
+      LogUtils.error('读取本地音源文件失败', errMsg)
+      return { success: false, error: `读取文件失败: ${errMsg}` }
     }
   }
 
