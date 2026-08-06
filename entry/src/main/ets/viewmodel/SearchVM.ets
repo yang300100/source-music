@@ -4,7 +4,6 @@ import { SearchEngine } from 'hsp_search'
 /**
  * 搜索页 ViewModel — 管理搜索状态和搜索历史
  */
-@Observed
 export class SearchVM {
   keyword: string = ''
   results: MusicItem[] = []

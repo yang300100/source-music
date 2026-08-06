@@ -27,11 +27,16 @@ export default class EntryAbility extends UIAbility {
   async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate')
 
-    // 初始化持久化存储（需要 context）
-    await StorageUtils.init(this.context)
-    // 初始化应用全局状态（音源、播放器、歌单）
-    await this.appState.init()
-    AppStorage.setOrCreate('appState', this.appState)
+    try {
+      // 初始化持久化存储（需要 context）
+      await StorageUtils.init(this.context)
+      // 初始化应用全局状态（音源、播放器、歌单）
+      await this.appState.init()
+      AppStorage.setOrCreate('appState', this.appState)
+      hilog.info(DOMAIN, 'testTag', '%{public}s', 'AppState 初始化完成')
+    } catch (initErr) {
+      hilog.error(DOMAIN, 'testTag', '初始化失败: %{public}s', JSON.stringify(initErr))
+    }
 
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {

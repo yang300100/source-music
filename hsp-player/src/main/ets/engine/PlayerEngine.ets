@@ -17,7 +17,6 @@ import { PlayQueue } from '../queue/PlayQueue'
  * 空闲 → 获取URL → 缓冲中 → 播放中 ⇄ 暂停
  * 播放出错 → 自动换源重试
  */
-@Observed
 export class PlayerEngine {
   status: PlayerStatus = PlayerStatus.IDLE
   currentSong: MusicItem | null = null

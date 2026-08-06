@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "label"
+    },
+    {
+      "name": "internet_permission_reason",
+      "value": "需要网络权限来搜索歌曲和获取播放链接"
     }
   ]
 }

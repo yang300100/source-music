@@ -6,7 +6,6 @@ import { MusicItem, PlayMode, LogUtils } from 'common'
  * 维护当前播放列表、索引、播放模式。
  * 支持搜索结果临时队列 / 歌单队列 / 本地文件队列三种来源。
  */
-@Observed
 export class PlayQueue {
   list: MusicItem[] = []
   currentIndex: number = -1

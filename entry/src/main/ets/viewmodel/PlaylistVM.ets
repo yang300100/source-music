@@ -4,7 +4,6 @@ import { PlaylistManager } from 'hsp_playlist'
 /**
  * 歌单 ViewModel — 管理歌单列表的加载和增删
  */
-@Observed
 export class PlaylistVM {
   playlists: LocalPlaylist[] = []
   private manager: PlaylistManager = PlaylistManager.getInstance()
