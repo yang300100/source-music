@@ -83,7 +83,8 @@ export class SourceManager {
       try {
         const source = await JSSandbox.createSource(script, info)
         if (source) {
-          source.enabled = savedSource.enabled
+          // enabled 兼容旧数据（undefined 视为启用）
+          source.enabled = savedSource.enabled !== false
           source.priority = savedSource.priority
           this.sources.push(source)
           restoredCount++

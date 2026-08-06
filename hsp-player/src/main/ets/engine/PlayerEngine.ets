@@ -134,16 +134,19 @@ export class PlayerEngine {
 
     this.status = PlayerStatus.LOADING
     this.currentSong = song
+    LogUtils.info(`[播放] 开始: ${song.name} - ${song.singer} (source=${song.source})`)
 
     try {
       // 从音源获取播放 URL（支持换源回退）
       const sourceMgr = SourceManager.getInstance()
+      LogUtils.info(`[播放] 请求播放 URL: songmid=${song.songmid}`)
       const musicInfo = await sourceMgr.getMusicInfoWithFallback(song.songmid, song.source, MusicQuality.HIGH, song)
       if (!musicInfo) {
         LogUtils.error('无法获取播放地址')
         this.status = PlayerStatus.ERROR
         return
       }
+      LogUtils.info(`[播放] 获取到 URL 信息, types=${JSON.stringify(Object.keys(musicInfo.types))}`)
 
       // 选最高可用音质
       const qualityKey = Object.keys(musicInfo.types)[0]
