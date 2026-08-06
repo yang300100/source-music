@@ -430,13 +430,30 @@ napi_value NapiEvalScript(napi_env env, napi_callback_info info) {
             if (status == JSVM_OK && result != nullptr) {
                 resultStr = ValueToJson(inst->env, result);
             } else {
+                // 提取异常详细信息（先尝试结构化错误信息，再回退到字符串转换）
+                std::string errDetail = "";
+                const JSVM_ExtendedErrorInfo *errInfo = nullptr;
+                if (OH_JSVM_GetLastErrorInfo(inst->env, &errInfo) == JSVM_OK && errInfo != nullptr &&
+                    errInfo->errorMessage != nullptr) {
+                    errDetail = errInfo->errorMessage;
+                }
                 JSVM_Value ex = nullptr;
                 OH_JSVM_GetAndClearLastException(inst->env, &ex);
                 if (ex != nullptr) {
-                    resultStr = "script error: " + ValueToJson(inst->env, ex);
-                } else {
-                    resultStr = "script error";
+                    JSVM_Value coerced = nullptr;
+                    if (OH_JSVM_CoerceToString(inst->env, ex, &coerced) == JSVM_OK && coerced != nullptr) {
+                        size_t len = 0;
+                        if (OH_JSVM_GetValueStringUtf8(inst->env, coerced, nullptr, 0, &len) == JSVM_OK && len > 0) {
+                            std::string exStr(len, '\0');
+                            OH_JSVM_GetValueStringUtf8(inst->env, coerced, &exStr[0], len + 1, &len);
+                            errDetail = exStr;
+                        }
+                    }
                 }
+                if (errDetail.empty()) {
+                    errDetail = "unknown script error";
+                }
+                resultStr = "script error: " + errDetail;
             }
             scopes.close();
         }
