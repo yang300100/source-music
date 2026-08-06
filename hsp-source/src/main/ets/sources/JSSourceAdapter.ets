@@ -20,10 +20,21 @@ import { BaseSource } from '../api/SourceAPI'
  * 读取 lx-music 社区 JS 音源脚本，解析其 HTTP 请求模式，
  * 在 ArkTS 层原生执行等效的网络请求，无需 QuickJS。
  *
- * 支持的音源格式：module.exports = { getSourceInfo, search, getMusicInfo, getLyric, ... }
+ * 支持的音源格式：
+ * 1. 新版事件驱动：globalThis.lx.on(lx.EVENT_NAMES.request, ...)（社区主流）
+ * 2. 旧版 module.exports 格式
  *
  * 参考原版 lx-music-mobile 的音源接口规范实现~
  */
+
+/** 音源元信息字段长度限制 */
+interface SourceInfoLen {
+  name: number
+  description: number
+  author: number
+  homepage: number
+  version: number
+}
 export class JSSourceAdapter extends BaseSource {
   /** 原始 JS 脚本内容 */
   private scriptContent: string
@@ -38,9 +49,9 @@ export class JSSourceAdapter extends BaseSource {
   /** 平台标识 */
   private platform: string = ''
 
-  constructor(scriptContent: string) {
-    // 先从脚本中提取音源元信息
-    const sourceInfo = JSSourceAdapter.parseSourceInfo(scriptContent)
+  constructor(scriptContent: string, fileName: string = '') {
+    // 先从脚本中提取音源元信息（头部注释 @标签，兜底用文件名）
+    const sourceInfo = JSSourceAdapter.parseSourceInfo(scriptContent, fileName)
     super(sourceInfo)
     this.scriptContent = scriptContent
     this.isNative = false // JS 音源非原生
@@ -49,30 +60,71 @@ export class JSSourceAdapter extends BaseSource {
     this.parseAPIConfig()
   }
 
-  /** 从 JS 脚本中解析音源元信息 */
-  static parseSourceInfo(scriptContent: string): SourceInfo {
-    // 尝试提取 getSourceInfo 返回值中的字段
-    const nameMatch = scriptContent.match(/name:\s*['"]([^'"]+)['"]/)
-    const verMatch = scriptContent.match(/version:\s*['"]([^'"]+)['"]/)
-    const authorMatch = scriptContent.match(/author:\s*['"]([^'"]+)['"]/)
-    const descMatch = scriptContent.match(/description:\s*['"]([^'"]+)['"]/)
+  /** 从 JS 脚本中解析音源元信息（兼容 lx-music 社区标准注释格式） */
+  static parseSourceInfo(scriptContent: string, fileName: string = ''): SourceInfo {
+    // lx-music 标准格式：脚本开头的块注释内用 @标签 声明元信息
+    // 例如：/* * @name 六音 * @version 1.0.0 ... */
+    const maxLen: SourceInfoLen = {
+      name: 24, description: 36, author: 56, homepage: 1024, version: 36
+    }
 
-    const name = nameMatch?.[1] ?? '未命名音源'
-    const version = verMatch?.[1] ?? '0.0.0'
-    const author = authorMatch?.[1] ?? '未知作者'
-    const description = descMatch?.[1] ?? '社区 JS 音源'
+    // 1. 提取脚本开头的块注释 /* ... */
+    let parsedName: string = ''
+    let parsedVersion: string = ''
+    let parsedAuthor: string = ''
+    let parsedDesc: string = ''
+    const commentMatch = /^\/\*[\S\s]+?\*\//.exec(scriptContent)
+    if (commentMatch) {
+      const lines = commentMatch[0].split(/\r?\n/)
+      // 2. 逐行匹配 * @tag value（只支持已知标签）
+      const tagRegex = /^\s?\*\s?@(\w+)\s(.+)$/
+      for (const line of lines) {
+        const result = tagRegex.exec(line)
+        if (!result) continue
+        const key = result[1]
+        const value = result[2].trim()
+        if (key === 'name' && parsedName === '') parsedName = value
+        else if (key === 'version' && parsedVersion === '') parsedVersion = value
+        else if (key === 'author' && parsedAuthor === '') parsedAuthor = value
+        else if (key === 'description' && parsedDesc === '') parsedDesc = value
+      }
+    }
+
+    // 3. 兜底：从文件名生成名称（例如 "sixyin.js" → "sixyin"）
+    let name = parsedName
+    if (!name) {
+      if (fileName) {
+        const base = fileName.replace(/\.js$/i, '')
+        name = base
+      } else {
+        const now = new Date()
+        const dateStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+        name = `音源_${dateStr}`
+      }
+    }
+
+    // 4. 字段长度限制
+    const truncate = (value: string, len: number): string => {
+      if (value.length > len) return value.substring(0, len) + '...'
+      return value
+    }
+
+    const finalName = truncate(name, maxLen.name)
+    const finalVersion = truncate(parsedVersion || '0.0.0', maxLen.version)
+    const finalAuthor = truncate(parsedAuthor || '未知作者', maxLen.author)
+    const finalDesc = truncate(parsedDesc || '社区 JS 音源', maxLen.description)
 
     // 生成唯一 ID
-    const id = `js_${name.replace(/[^a-zA-Z0-9一-龥]/g, '_').toLowerCase()}`
+    const id = `js_${finalName.replace(/[^a-zA-Z0-9一-龥]/g, '_').toLowerCase()}`
 
     return {
       id: id,
-      name: name,
-      version: version,
-      author: author,
-      description: description,
+      name: finalName,
+      version: finalVersion,
+      author: finalAuthor,
+      description: finalDesc,
       type: SourceType.CUSTOM,
-      scriptUrl: '' // JS 脚本，非在线 URL
+      scriptUrl: ''
     }
   }
 

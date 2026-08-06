@@ -90,7 +90,7 @@ export class SourceManager {
   private async importFromLocal(filePath: string): Promise<SourceImportResult> {
     LogUtils.info('导入本地音源', filePath)
     try {
-      // 读取文件内容
+      // 读取文件内容（支持 URI 或沙箱路径）
       const fd = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
       const stat = fileIo.statSync(filePath)
       const buf = new ArrayBuffer(stat.size)
@@ -104,7 +104,12 @@ export class SourceManager {
         scriptContent += String.fromCharCode(uint8[i])
       }
 
-      return this.registerJSSource(scriptContent)
+      // 从 URI 或路径中提取文件名（用于兜底命名）
+      const lastSlash = filePath.lastIndexOf('/')
+      const rawName = lastSlash >= 0 ? filePath.substring(lastSlash + 1) : filePath
+      const fileName = rawName.includes('?') ? rawName.substring(0, rawName.indexOf('?')) : rawName
+
+      return this.registerJSSource(scriptContent, fileName)
     } catch (err) {
       LogUtils.error('读取本地音源文件失败', JSON.stringify(err))
       return { success: false, error: `读取文件失败: ${JSON.stringify(err)}` }
@@ -119,7 +124,7 @@ export class SourceManager {
       if (!scriptContent) {
         return { success: false, error: '下载音源脚本失败，请检查网络连接' }
       }
-      return this.registerJSSource(scriptContent)
+      return this.registerJSSource(scriptContent, '')
     } catch (err) {
       LogUtils.error('下载在线音源失败', JSON.stringify(err))
       return { success: false, error: `下载失败: ${JSON.stringify(err)}` }
@@ -127,7 +132,7 @@ export class SourceManager {
   }
 
   /** 注册 JS 音源（解析脚本并创建适配器） */
-  private registerJSSource(scriptContent: string): SourceImportResult {
+  private registerJSSource(scriptContent: string, fileName: string = ''): SourceImportResult {
     // 安全校验
     const securityError = JSSandbox.validateScript(scriptContent)
     if (securityError) {
@@ -135,11 +140,8 @@ export class SourceManager {
       return { success: false, error: `安全校验失败: ${securityError}` }
     }
 
-    // 创建 JS 适配器
-    const adapter = new JSSourceAdapter(scriptContent)
-    if (!adapter.info.name || adapter.info.name === '未命名音源') {
-      return { success: false, error: '无法解析音源信息，请检查脚本格式' }
-    }
+    // 创建 JS 适配器（元信息从脚本头部注释解析，解析不到时用文件名/日期兜底）
+    const adapter = new JSSourceAdapter(scriptContent, fileName)
 
     // 检查是否已存在
     const existing = this.sources.find(s => s.info.id === adapter.info.id)
