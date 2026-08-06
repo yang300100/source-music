@@ -72,7 +72,8 @@ static JSVM_Value GetGlobalProperty(JSVM_Env env, const char *name) {
     JSVM_Value key = nullptr;
     JSVM_Value value = nullptr;
     if (OH_JSVM_GetGlobal(env, &global) != JSVM_OK) return nullptr;
-    if (OH_JSVM_CreateStringUtf8(env, name, 0, &key) != JSVM_OK) return nullptr;
+    // 注意：length 必须传字符串长度或 JSVM_AUTO_LENGTH，传 0 会创建空字符串 key！
+    if (OH_JSVM_CreateStringUtf8(env, name, strlen(name), &key) != JSVM_OK) return nullptr;
     if (OH_JSVM_GetProperty(env, global, key, &value) != JSVM_OK) return nullptr;
     return value;
 }
