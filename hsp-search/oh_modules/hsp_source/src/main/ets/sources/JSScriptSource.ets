@@ -285,18 +285,10 @@ export class JSScriptSource extends BaseSource {
     }
     LogUtils.info(`JSVM VM 创建成功: handle=${this.handle}`)
 
-    // 3. 注入 lx 运行环境
+    // 3+4. 注入 lx 运行环境 + 执行用户音源脚本
+    // 重要：JSVM 每次 RunScript 之间全局不共享，必须合并为一次执行！
     try {
-      const preloadRet = this.bridge.evalScript(this.handle, PRELOAD_SCRIPT)
-      LogUtils.info(`lx 环境注入结果: ${preloadRet}`)
-    } catch (preloadErr) {
-      LogUtils.error('lx 环境注入异常', JSON.stringify(preloadErr))
-      return false
-    }
-
-    // 4. 执行用户音源脚本
-    try {
-      const scriptRet = this.bridge.evalScript(this.handle, this.scriptContent)
+      const scriptRet = this.bridge.evalScript(this.handle, PRELOAD_SCRIPT + '\n' + this.scriptContent)
       LogUtils.info(`音源脚本执行结果: ${scriptRet}`)
       // 检查脚本执行是否报错（native 在出错时返回错误信息字符串）
       if (scriptRet && (scriptRet.includes('Error') || scriptRet.includes('error') || scriptRet.includes('异常'))) {
