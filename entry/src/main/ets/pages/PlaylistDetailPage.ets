@@ -7,7 +7,7 @@ import { router } from '@kit.ArkUI'
 /**
  * 歌单详情页面 — 展示歌单内歌曲列表，支持删除和播放全部
  */
-@Entry
+
 @Component
 struct PlaylistDetailPage {
   @State playlist: LocalPlaylist | null = null

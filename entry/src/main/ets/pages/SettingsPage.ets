@@ -1,7 +1,7 @@
 /**
  * 设置页面 — 主题、音质、缓存、关于等选项（MVP 阶段为静态占位）
  */
-@Entry
+
 @Component
 struct SettingsPage {
   build() {

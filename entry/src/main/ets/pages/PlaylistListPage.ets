@@ -6,7 +6,7 @@ import { router } from '@kit.ArkUI'
 /**
  * 歌单列表页面 — 展示所有本地歌单，点击进入详情
  */
-@Entry
+
 @Component
 struct PlaylistListPage {
   @State viewModel: PlaylistVM = new PlaylistVM()

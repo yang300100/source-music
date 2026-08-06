@@ -5,7 +5,7 @@ import { PlayerStatus, PlayMode } from 'common'
 /**
  * 正在播放页面 — 封面 + 歌曲信息 + 播放控制 + 歌词
  */
-@Entry
+
 @Component
 struct NowPlayingPage {
   @State player: PlayerEngine = PlayerEngine.getInstance()

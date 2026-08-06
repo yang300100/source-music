@@ -5,7 +5,7 @@ import { MusicItem } from 'common'
 /**
  * 搜索页面 — 搜索框 + 历史记录 + 搜索结果列表
  */
-@Entry
+
 @Component
 struct SearchPage {
   @State viewModel: SearchVM = new SearchVM()

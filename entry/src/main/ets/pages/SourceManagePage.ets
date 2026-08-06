@@ -4,7 +4,7 @@ import { SourceInstance, SourceImportMethod } from 'common'
 /**
  * 音源管理页面 — 展示、开关、导入/删除音源
  */
-@Entry
+
 @Component
 struct SourceManagePage {
   @State sources: SourceInstance[] = []
