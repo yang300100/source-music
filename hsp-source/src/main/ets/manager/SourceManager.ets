@@ -264,7 +264,7 @@ export class SourceManager {
     }
   }
 
-  /** 聚合搜索：并发请求所有启用音源 */
+  /** 聚合搜索：并发请求所有启用音源（每源 8 秒超时，慢源不拖累整体） */
   async searchAll(
     query: string,
     page: number = 1,
@@ -274,7 +274,11 @@ export class SourceManager {
     LogUtils.info(`聚合搜索: "${query}", ${enabled.length} 个音源`)
 
     const promises = enabled.map(source =>
-      source.search(query, page, quality).catch((err: Error) => {
+      this.withTimeout(
+        source.search(query, page, quality),
+        8000,
+        `音源 ${source.info.name} 搜索`
+      ).catch((err: Error) => {
         LogUtils.warn(`音源 ${source.info.name} 搜索失败`, JSON.stringify(err))
         return null
       })
@@ -282,6 +286,33 @@ export class SourceManager {
 
     const results = await Promise.all(promises)
     return results.filter(r => r !== null) as SearchResult[]
+  }
+
+  /** Promise 超时包装 */
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, tag: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true
+          LogUtils.warn(`${tag}超时(${timeoutMs}ms)，跳过`)
+          reject(new Error('timeout'))
+        }
+      }, timeoutMs)
+      promise.then((value: T) => {
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          resolve(value)
+        }
+      }).catch((err: Error) => {
+        if (!settled) {
+          settled = true
+          clearTimeout(timer)
+          reject(err)
+        }
+      })
+    })
   }
 
   /** 获取播放信息（尝试所有音源直到成功） */

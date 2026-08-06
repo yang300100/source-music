@@ -164,6 +164,34 @@ const PRELOAD_SCRIPT: string = `
   var pendingRequests = [];      // [{requestId, url, options}]
   var pendingCallbacks = {};    // requestId → callback
 
+  // ---- 真实定时器（脚本兼容性关键：很多音源依赖 setTimeout）----
+  var timers = {};              // id → { callback, expireAt }
+  var timerSeq = 0;
+  globalThis.setTimeout = function(cb, ms) {
+    if (typeof cb !== 'function') return 0;
+    var id = ++timerSeq;
+    timers[id] = { callback: cb, expireAt: Date.now() + (typeof ms === 'number' ? ms : 0) };
+    return id;
+  };
+  globalThis.clearTimeout = function(id) {
+    delete timers[id];
+  };
+  // ArkTS 轮询调用：执行所有到期定时器
+  globalThis.__lx_tick__ = function() {
+    var now = Date.now();
+    var due = [];
+    for (var k in timers) {
+      if (timers[k].expireAt <= now) {
+        due.push(timers[k].callback);
+        delete timers[k];
+      }
+    }
+    for (var i = 0; i < due.length; i++) {
+      try { due[i](); } catch (e) {}
+    }
+    return due.length;
+  };
+
   // ---- lx 全局对象 ----
   var lx = {
     EVENT_NAMES: EVENT_NAMES,
@@ -250,9 +278,6 @@ const PRELOAD_SCRIPT: string = `
     }
     cb(err, resp, resp ? resp.body : null);
   };
-  globalThis.setTimeout = globalThis.setTimeout || function() { return 0; };
-  globalThis.clearTimeout = globalThis.clearTimeout || function() {};
-
   // 环境校验函数：验证 lx 全局就绪
   globalThis.__lx_check__ = function() {
     if (typeof globalThis.lx === 'object' && globalThis.lx.on && globalThis.lx.request) {
@@ -411,9 +436,16 @@ export class JSScriptSource extends BaseSource {
     }
     LogUtils.info(`[沙箱] __lx_call__ 返回: ${callRet}`)
 
-    // 等待循环：处理脚本请求 + 轮询结果（最多 15 秒）
+    // 等待循环：处理脚本请求 + 驱动定时器 + 轮询结果（最多 15 秒）
     const deadline = Date.now() + 15000
     while (Date.now() < deadline) {
+      // 0. 驱动脚本内 setTimeout 定时器
+      try {
+        this.bridge.callGlobalFunction(this.handle, '__lx_tick__', '[]')
+      } catch (tickErr) {
+        // 忽略 tick 异常
+      }
+
       // 1. 取脚本挂起的网络请求并发起
       try {
         const reqsJson = this.bridge.callGlobalFunction(this.handle, '__lx_takeRequests__', '[]')
