@@ -13,8 +13,8 @@ import {
 } from 'common'
 import { BaseSource } from '../api/SourceAPI'
 
-// 引入 native 桥接模块（jsvm_bridge.so）
-declare const requireNapi: (name: string) => Object
+// 引入 native 桥接模块（jsvm_bridge.so，HSP 内标准加载方式）
+import jsvmBridgeNative from 'libjsvm_bridge.so'
 
 interface JsvmBridgeApi {
   createVM(onRequest: (requestId: string, url: string, optionsJson: string) => void): number
@@ -262,14 +262,10 @@ export class JSScriptSource extends BaseSource {
 
   /** 初始化沙箱：创建 VM、注入环境、执行脚本 */
   async init(): Promise<boolean> {
-    // 1. 加载 native 桥接模块
-    try {
-      this.bridge = requireNapi('jsvm_bridge') as JsvmBridgeApi
-    } catch (loadErr) {
-      LogUtils.error('JSVM 桥接模块加载失败（requireNapi 异常）', JSON.stringify(loadErr))
-    }
+    // 1. 加载 native 桥接模块（import libjsvm_bridge.so 方式）
+    this.bridge = jsvmBridgeNative as JsvmBridgeApi
     if (!this.bridge || !this.bridge.createVM) {
-      LogUtils.error('JSVM 桥接模块加载失败（模块为空或无 createVM）')
+      LogUtils.error('JSVM 桥接模块加载失败（import 模块为空或无 createVM）')
       return false
     }
     LogUtils.info('JSVM 桥接模块加载成功')
