@@ -33,6 +33,7 @@ export class PlayerEngine {
 
   private avPlayer: media.AVPlayer | null = null
   private progressTimer: number | null = null
+  private currentAvState: string = 'idle'
   private static instance: PlayerEngine | null = null
 
   static getInstance(): PlayerEngine {
@@ -86,6 +87,7 @@ export class PlayerEngine {
     if (!this.avPlayer) return
 
     this.avPlayer.on('stateChange', (state: string) => {
+      this.currentAvState = state
       LogUtils.info(`[播放] 状态变化: ${state}`)
       switch (state) {
         case 'idle':
@@ -179,6 +181,18 @@ export class PlayerEngine {
       } else {
         LogUtils.info('[播放] 设置 URL 数据源')
         this.avPlayer.url = playUrl
+        // 等待数据源生效（状态变为 initialized）——url 设置是异步的，
+        // 立即 prepare 会在错误状态挂起！
+        const stateDeadline = Date.now() + 8000
+        while (this.currentAvState !== 'initialized' && Date.now() < stateDeadline) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 50))
+        }
+        LogUtils.info(`[播放] 数据源状态: ${this.currentAvState}`)
+        if (this.currentAvState !== 'initialized') {
+          LogUtils.error(`URL 设置超时，状态: ${this.currentAvState}`)
+          this.status = PlayerStatus.ERROR
+          return
+        }
       }
 
       this.status = PlayerStatus.BUFFERING
