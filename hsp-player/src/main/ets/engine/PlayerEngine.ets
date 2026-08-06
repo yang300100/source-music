@@ -1,4 +1,5 @@
 import { media } from '@kit.MediaKit'
+import { fileIo } from '@kit.CoreFileKit'
 import {
   MusicItem,
   PlayerStatus,
@@ -120,9 +121,24 @@ export class PlayerEngine {
         return
       }
 
-      // 重置并播放
+      // 重置播放器
       await this.avPlayer.reset()
-      this.avPlayer.url = playUrl
+
+      // 判断是本地文件还是网络流
+      if (playUrl.startsWith('file://')) {
+        const filePath = playUrl.replace('file://', '')
+        const fdFile = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
+        const stat = fileIo.statSync(filePath)
+        const fdDesc: media.AVFileDescriptor = {
+          fd: fdFile.fd,
+          offset: 0,
+          length: stat.size
+        }
+        this.avPlayer.fdSrc = fdDesc
+      } else {
+        this.avPlayer.url = playUrl
+      }
+
       this.status = PlayerStatus.BUFFERING
       await this.avPlayer.prepare()
       await this.avPlayer.play()

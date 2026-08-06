@@ -12,6 +12,7 @@ import {
   StorageUtils
 } from 'common'
 import { BaseSource, DemoSource } from '../api/SourceAPI'
+import { LocalFileSource } from '../sources/LocalFileSource'
 
 const STORAGE_KEY_SOURCES = 'source_list'
 
@@ -43,6 +44,11 @@ export class SourceManager {
     const demo = new DemoSource()
     demo.priority = 999
     this.sources.push(demo)
+
+    // 本地文件音源（优先级 50，高于演示音源）
+    const localFile = new LocalFileSource()
+    localFile.priority = 50
+    this.sources.push(localFile)
 
     LogUtils.info('音源管理器初始化完成', `共 ${this.sources.length} 个音源`)
   }
