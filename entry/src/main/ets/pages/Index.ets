@@ -2,7 +2,7 @@ import { PlayerEngine } from 'hsp_player'
 import { PlaylistManager } from 'hsp_playlist'
 import { SourceManager } from 'hsp_source'
 import { SearchEngine } from 'hsp_search'
-import { PlayerStatus, PlayMode, MusicItem, SourceInstance, SourceImportMethod, SourceImportResult, LocalPlaylist, LyricLine } from 'common'
+import { PlayerStatus, PlayMode, MusicItem, MusicQuality, SourceInstance, SourceImportMethod, SourceImportResult, LocalPlaylist, LyricLine } from 'common'
 import { picker, fileIo } from '@kit.CoreFileKit'
 import { util } from '@kit.ArkTS'
 import { ConfigurationConstant } from '@kit.AbilityKit'
@@ -304,6 +304,12 @@ struct NowPlayingContent {
 // ============================================================
 //  搜索页
 // ============================================================
+/** 搜索源选项（搜索页选择器） */
+interface SearchSourceOption {
+  id: string
+  name: string
+}
+
 @Component
 struct SearchContent {
   @State keyword: string = ''
@@ -311,9 +317,24 @@ struct SearchContent {
   @State isLoading: boolean = false
   @State showHistory: boolean = true
   @State history: string[] = []
+  // 搜索源选择（'' = 全部）
+  @State activeSourceId: string = ''
+  @State searchSources: SearchSourceOption[] = []
 
   aboutToAppear(): void {
     SearchEngine.getHistory().then(h => { this.history = h })
+    // 加载搜索源列表（内置搜索源）
+    const sources = SourceManager.getInstance().getSearchSources()
+    const list: SearchSourceOption[] = []
+    for (const s of sources) {
+      const opt: SearchSourceOption = { id: s.info.id, name: s.info.name }
+      list.push(opt)
+    }
+    this.searchSources = list
+    const active = SourceManager.getInstance().getActiveSearchSource()
+    if (active) {
+      this.activeSourceId = active.info.id
+    }
   }
 
   build() {
@@ -337,6 +358,16 @@ struct SearchContent {
             .onClick(() => { this.doSearch() })
         }
         .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+
+        // 搜索源选择器（单选：全部 / 酷狗 / 网易 / QQ）
+        Row({ space: 8 }) {
+          this.SourceChip('', '全部')
+          ForEach(this.searchSources, (source: SearchSourceOption) => {
+            this.SourceChip(source.id, source.name)
+          })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, bottom: 8 })
 
         if (this.showHistory) {
           // 搜索历史
@@ -398,13 +429,34 @@ struct SearchContent {
     if (!this.keyword.trim()) return
     this.isLoading = true
     this.showHistory = false
-    SearchEngine.search(this.keyword).then(r => {
+    SearchEngine.search(this.keyword, 1, MusicQuality.HIGH, this.activeSourceId).then(r => {
       this.results = r
       this.isLoading = false
     }).catch(() => {
       this.results = []
       this.isLoading = false
     })
+  }
+
+  /** 搜索源选择芯片（单选） */
+  @Builder
+  SourceChip(sourceId: string, name: string) {
+    Text(name)
+      .fontSize(13)
+      .fontColor(this.activeSourceId === sourceId ? '#1e1e2e' : '#a6adc8')
+      .backgroundColor(this.activeSourceId === sourceId ? '#a6e3a1' : '#2d2d3f')
+      .padding({ left: 12, right: 12, top: 4, bottom: 4 })
+      .borderRadius(14)
+      .onClick(() => {
+        this.activeSourceId = sourceId
+        if (sourceId) {
+          SourceManager.getInstance().setActiveSearchSource(sourceId)
+        }
+        // 切换源后重新搜索
+        if (this.keyword.trim()) {
+          this.doSearch()
+        }
+      })
   }
 
   /** 添加到歌单按钮（swipeAction builder 必须是 @Builder） */

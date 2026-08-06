@@ -16,6 +16,7 @@ import { BaseSource, DemoSource } from '../api/SourceAPI'
 import { LocalFileSource } from '../sources/LocalFileSource'
 import { KugouSource } from '../sources/KugouSource'
 import { NeteaseSource } from '../sources/NeteaseSource'
+import { QQSource } from '../sources/QQSource'
 import { JSSourceAdapter } from '../sources/JSSourceAdapter'
 import { JSScriptSource } from '../sources/JSScriptSource'
 import { JSSandbox } from '../sandbox/JSSandbox'
@@ -71,6 +72,10 @@ export class SourceManager {
     // 内置网易云搜索音源（优先级 25）
     const netease = new NeteaseSource()
     this.sources.push(netease)
+
+    // 内置 QQ 音乐搜索音源（优先级 30）
+    const qq = new QQSource()
+    this.sources.push(qq)
 
     // 恢复已保存的 JS 音源（读取脚本内容 → 重新创建沙箱）
     const saved = await StorageUtils.getObject<SavedSource[]>(STORAGE_KEY_SOURCES, [])
@@ -252,12 +257,71 @@ export class SourceManager {
     return true
   }
 
-  /** 开关音源 */
+  /** 开关音源（单选模式：搜索源互斥、JS 音源互斥） */
   async toggleSource(id: string, enabled: boolean): Promise<void> {
     const source = this.getSourceById(id)
-    if (source) {
-      source.enabled = enabled
-      await this.save()
+    if (!source) return
+
+    if (enabled) {
+      // 启用新源时，自动禁用同类型的其他源（单选）
+      for (const s of this.sources) {
+        if (s.info.id === id) continue
+        if (this.isSearchSourceId(id) && this.isSearchSourceId(s.info.id)) {
+          s.enabled = false
+        } else if (!this.isSearchSourceId(id) && !this.isSearchSourceId(s.info.id) &&
+          !this.isProtectedSourceId(s.info.id) && !s.isNative) {
+          // JS 音源互斥（内置源不受影响）
+          s.enabled = false
+        }
+      }
+    }
+    source.enabled = enabled
+    await this.save()
+  }
+
+  /** 是否为内置搜索源 */
+  isSearchSourceId(id: string): boolean {
+    return id === 'kugou' || id === 'netease' || id === 'qqmusic'
+  }
+
+  /** 是否为受保护的内置源（不可禁用/删除） */
+  isProtectedSourceId(id: string): boolean {
+    return id === 'kugou' || id === 'netease' || id === 'qqmusic' ||
+      id === 'local_source' || id === 'demo'
+  }
+
+  /** 获取搜索源列表（供搜索页选择器） */
+  getSearchSources(): SourceInstance[] {
+    return this.sources.filter(s => this.isSearchSourceId(s.info.id))
+  }
+
+  /** 切换当前搜索源（单选） */
+  async setActiveSearchSource(id: string): Promise<void> {
+    await this.toggleSource(id, true)
+  }
+
+  /** 获取当前启用的搜索源（无则返回第一个） */
+  getActiveSearchSource(): SourceInstance | null {
+    const enabled = this.getSearchSources().find(s => s.enabled)
+    if (enabled) return enabled
+    const first = this.getSearchSources()[0]
+    return first ?? null
+  }
+
+  /** 按 ID 搜索单个音源 */
+  async searchSourceById(
+    id: string,
+    query: string,
+    page: number = 1,
+    quality: MusicQuality = MusicQuality.HIGH
+  ): Promise<SearchResult | null> {
+    const source = this.getSourceById(id)
+    if (!source || !source.enabled) return null
+    try {
+      return await this.withTimeout(source.search(query, page, quality), 8000, `音源 ${source.info.name} 搜索`)
+    } catch (err) {
+      LogUtils.warn(`音源 ${source.info.name} 搜索失败`, JSON.stringify(err))
+      return null
     }
   }
 

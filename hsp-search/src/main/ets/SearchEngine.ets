@@ -22,11 +22,15 @@ const MAX_HISTORY = 50
  * 5. 按音源优先级排序展示
  */
 export class SearchEngine {
-  /** 执行聚合搜索 */
+  /**
+   * 执行搜索
+   * @param sourceId 指定搜索源 ID（'' = 全部启用源）
+   */
   static async search(
     query: string,
     page: number = 1,
-    quality: MusicQuality = MusicQuality.HIGH
+    quality: MusicQuality = MusicQuality.HIGH,
+    sourceId: string = ''
   ): Promise<MusicItem[]> {
     if (!query.trim()) return []
 
@@ -34,11 +38,19 @@ export class SearchEngine {
     SearchEngine.saveHistory(query)
 
     const sourceMgr = SourceManager.getInstance()
-    const results = await sourceMgr.searchAll(query, page, quality)
+    let results: SearchResult[]
+    if (sourceId) {
+      // 指定源搜索（单选）
+      const single = await sourceMgr.searchSourceById(sourceId, query, page, quality)
+      results = single ? [single] : []
+    } else {
+      // 聚合搜索全部启用源
+      results = await sourceMgr.searchAll(query, page, quality)
+    }
 
     // 合并去重
     const merged = SearchEngine.mergeResults(results)
-    LogUtils.info(`聚合搜索完成: ${merged.length} 首去重结果`)
+    LogUtils.info(`搜索完成: ${merged.length} 首去重结果`)
 
     return SearchEngine.sortBySourcePriority(merged)
   }
