@@ -9,10 +9,14 @@ import {
   LyricLine,
   MusicQuality,
   LogUtils,
-  StorageUtils
+  StorageUtils,
+  NetUtils
 } from 'common'
 import { BaseSource, DemoSource } from '../api/SourceAPI'
 import { LocalFileSource } from '../sources/LocalFileSource'
+import { JSSourceAdapter } from '../sources/JSSourceAdapter'
+import { JSSandbox } from '../sandbox/JSSandbox'
+import { fileIo } from '@kit.CoreFileKit'
 
 const STORAGE_KEY_SOURCES = 'source_list'
 
@@ -82,16 +86,75 @@ export class SourceManager {
     }
   }
 
-  /** 从本地文件导入 */
+  /** 从本地文件导入 JS 音源脚本 */
   private async importFromLocal(filePath: string): Promise<SourceImportResult> {
     LogUtils.info('导入本地音源', filePath)
-    return { success: false, error: '本地 JS 音源导入将在 JSSandbox 实现后支持' }
+    try {
+      // 读取文件内容
+      const fd = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
+      const stat = fileIo.statSync(filePath)
+      const buf = new ArrayBuffer(stat.size)
+      fileIo.readSync(fd.fd, buf)
+      fileIo.closeSync(fd)
+
+      // 将 ArrayBuffer 转为字符串
+      const uint8 = new Uint8Array(buf)
+      let scriptContent = ''
+      for (let i = 0; i < uint8.length; i++) {
+        scriptContent += String.fromCharCode(uint8[i])
+      }
+
+      return this.registerJSSource(scriptContent)
+    } catch (err) {
+      LogUtils.error('读取本地音源文件失败', JSON.stringify(err))
+      return { success: false, error: `读取文件失败: ${JSON.stringify(err)}` }
+    }
   }
 
-  /** 从在线 URL 导入 */
+  /** 从在线 URL 导入 JS 音源脚本 */
   private async importFromUrl(url: string): Promise<SourceImportResult> {
     LogUtils.info('导入在线音源', url)
-    return { success: false, error: '在线音源导入将在 JSSandbox 实现后支持' }
+    try {
+      const scriptContent = await NetUtils.getString(url)
+      if (!scriptContent) {
+        return { success: false, error: '下载音源脚本失败，请检查网络连接' }
+      }
+      return this.registerJSSource(scriptContent)
+    } catch (err) {
+      LogUtils.error('下载在线音源失败', JSON.stringify(err))
+      return { success: false, error: `下载失败: ${JSON.stringify(err)}` }
+    }
+  }
+
+  /** 注册 JS 音源（解析脚本并创建适配器） */
+  private registerJSSource(scriptContent: string): SourceImportResult {
+    // 安全校验
+    const securityError = JSSandbox.validateScript(scriptContent)
+    if (securityError) {
+      LogUtils.warn('音源脚本安全校验未通过', securityError)
+      return { success: false, error: `安全校验失败: ${securityError}` }
+    }
+
+    // 创建 JS 适配器
+    const adapter = new JSSourceAdapter(scriptContent)
+    if (!adapter.info.name || adapter.info.name === '未命名音源') {
+      return { success: false, error: '无法解析音源信息，请检查脚本格式' }
+    }
+
+    // 检查是否已存在
+    const existing = this.sources.find(s => s.info.id === adapter.info.id)
+    if (existing) {
+      // 更新现有音源
+      const idx = this.sources.indexOf(existing)
+      this.sources[idx] = adapter
+      LogUtils.info(`更新音源: ${adapter.info.name}`)
+    } else {
+      this.sources.push(adapter)
+      LogUtils.info(`导入音源: ${adapter.info.name} v${adapter.info.version}`)
+    }
+
+    this.save()
+    return { success: true, source: adapter }
   }
 
   /** 移除音源 */

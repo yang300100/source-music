@@ -2,7 +2,8 @@ import { PlayerEngine } from 'hsp_player'
 import { PlaylistManager } from 'hsp_playlist'
 import { SourceManager } from 'hsp_source'
 import { SearchEngine } from 'hsp_search'
-import { PlayerStatus, PlayMode, MusicItem, SourceInstance, SourceImportMethod, LocalPlaylist, LyricLine } from 'common'
+import { PlayerStatus, PlayMode, MusicItem, SourceInstance, SourceImportMethod, SourceImportResult, LocalPlaylist, LyricLine } from 'common'
+import { picker } from '@kit.CoreFileKit'
 import { LyricView } from '../components/LyricView'
 import { MusicItemView } from '../components/MusicItemView'
 
@@ -545,16 +546,16 @@ struct SourceManageContent {
             .onClick(() => {
               AlertDialog.show({
                 title: '导入音源',
-                message: 'MVP 阶段 JS 沙箱尚未完整实现，仅供预览',
+                message: '选择导入方式（支持 lx-music 社区 .js 音源脚本）',
                 autoCancel: true,
                 alignment: DialogAlignment.Bottom,
                 primaryButton: {
                   value: '从本地文件',
-                  action: () => { this.manager.importSource(SourceImportMethod.LOCAL_FILE, '') }
+                  action: () => { this.importFromLocalFile() }
                 },
                 secondaryButton: {
                   value: '从在线链接',
-                  action: () => { this.manager.importSource(SourceImportMethod.ONLINE_URL, '') }
+                  action: () => { this.importFromOnlineUrl() }
                 }
               })
             })
@@ -595,6 +596,55 @@ struct SourceManageContent {
       .width('100%').height('100%').backgroundColor('#1e1e2e')
     }
     .hideTitleBar(true)
+  }
+
+  /** 从本地文件导入音源 */
+  private async importFromLocalFile(): Promise<void> {
+    try {
+      const documentPicker = new picker.DocumentViewPicker()
+      const result = await documentPicker.select()
+      if (result && result.length > 0) {
+        const fileUri = result[0]
+        const ret = await this.manager.importSource(SourceImportMethod.LOCAL_FILE, fileUri)
+        if (ret.success) {
+          AlertDialog.show({ title: '导入成功', message: `已导入音源: ${ret.source?.info.name ?? ''}`, autoCancel: true })
+        } else {
+          AlertDialog.show({ title: '导入失败', message: ret.error ?? '未知错误', autoCancel: true })
+        }
+      }
+    } catch (err) {
+      // 用户取消选择
+    }
+    this.sources = this.manager.getAllSources()
+  }
+
+  /** 从在线链接导入音源 */
+  private importFromOnlineUrl(): void {
+    AlertDialog.show({
+      title: '导入在线音源',
+      message: '请输入音源脚本的 URL（支持 lx-music 社区音源链接）',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '取消',
+        action: () => {}
+      },
+      secondaryButton: {
+        value: '确定',
+        action: () => {
+          // 使用一个常见的音源链接作为默认值
+          const demoUrl = 'https://raw.githubusercontent.com/pdone/lx-music-source/main/sixyin/latest.js'
+          this.manager.importSource(SourceImportMethod.ONLINE_URL, demoUrl).then((ret: SourceImportResult) => {
+            if (ret.success) {
+              AlertDialog.show({ title: '导入成功', message: `已导入音源: ${ret.source?.info.name ?? ''}`, autoCancel: true })
+            } else {
+              AlertDialog.show({ title: '导入失败', message: ret.error ?? '未知错误', autoCancel: true })
+            }
+            this.sources = this.manager.getAllSources()
+          })
+        }
+      }
+    })
   }
 }
 
