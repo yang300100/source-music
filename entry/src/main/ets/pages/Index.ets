@@ -663,15 +663,20 @@ struct SourceManageContent {
                   Text(source.info.name).fontSize(15).fontColor('#cdd6f4')
                   Text(`v${source.info.version} · ${source.info.author}`)
                     .fontSize(11).fontColor('#6c7086')
+                  // 音源类型标注：帮助用户理解音源能力
+                  Text(this.getSourceTypeLabel(source.info.id, source.isNative))
+                    .fontSize(10)
+                    .fontColor(source.info.id === 'kugou' ? '#a6e3a1' : '#89b4fa')
                 }
                 .layoutWeight(1)
 
                 Toggle({ type: ToggleType.Switch, isOn: source.enabled })
+                  .enabled(source.info.id !== 'kugou')
                   .onChange((isOn: boolean) => {
                     this.manager.toggleSource(source.info.id, isOn)
                   })
 
-                if (source.info.id !== 'demo') {
+                if (source.info.id !== 'demo' && source.info.id !== 'local_source' && source.info.id !== 'kugou') {
                   Text('🗑').fontSize(16)
                     .onClick(() => {
                       this.manager.removeSource(source.info.id)
@@ -689,6 +694,14 @@ struct SourceManageContent {
       .width('100%').height('100%').backgroundColor('#1e1e2e')
     }
     .hideTitleBar(true)
+  }
+
+  /** 音源类型标注（帮助用户理解音源能力） */
+  private getSourceTypeLabel(id: string, isNative: boolean): string {
+    if (id === 'kugou') return '🔍 搜索 + 解析'
+    if (id === 'local_source') return '📂 本地文件'
+    if (id === 'demo') return '🧪 演示'
+    return isNative ? '🔧 原生音源' : '📜 JS 音源（多为解析型，搜索需酷狗源）'
   }
 
   /** 从本地文件导入音源 */
