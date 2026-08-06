@@ -205,13 +205,18 @@ napi_value NapiCreateVM(napi_env env, napi_callback_info info) {
         g_napiEnv = env;
     }
 
-    // 创建 VM
-    JSVM_InitOptions initOptions = { 0 };
-    if (OH_JSVM_Init(&initOptions) != JSVM_OK) {
-        napi_value err;
-        napi_create_string_utf8(env, "jsvm init failed", NAPI_AUTO_LENGTH, &err);
-        napi_throw(env, err);
-        return nullptr;
+    // 创建 VM（OH_JSVM_Init 只允许调用一次，用静态标志保证）
+    static bool s_initialized = false;
+    if (!s_initialized) {
+        JSVM_InitOptions initOptions = { 0 };
+        JSVM_Status initStatus = OH_JSVM_Init(&initOptions);
+        if (initStatus != JSVM_OK) {
+            napi_value err;
+            napi_create_string_utf8(env, "jsvm init failed", NAPI_AUTO_LENGTH, &err);
+            napi_throw(env, err);
+            return nullptr;
+        }
+        s_initialized = true;
     }
 
     JSVM_VM vm = nullptr;

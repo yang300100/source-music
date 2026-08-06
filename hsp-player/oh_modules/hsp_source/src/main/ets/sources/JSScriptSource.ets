@@ -227,6 +227,14 @@ const PRELOAD_SCRIPT: string = `
   };
   globalThis.setTimeout = globalThis.setTimeout || function() { return 0; };
   globalThis.clearTimeout = globalThis.clearTimeout || function() {};
+
+  // 环境校验函数：验证 lx 全局就绪
+  globalThis.__lx_check__ = function() {
+    if (typeof globalThis.lx === 'object' && globalThis.lx.on && globalThis.lx.request) {
+      return 'ok';
+    }
+    return 'lx not ready';
+  };
 })();
 `
 
@@ -254,32 +262,72 @@ export class JSScriptSource extends BaseSource {
 
   /** 初始化沙箱：创建 VM、注入环境、执行脚本 */
   async init(): Promise<boolean> {
+    // 1. 加载 native 桥接模块
     try {
-      // 加载 native 桥接模块
       this.bridge = requireNapi('jsvm_bridge') as JsvmBridgeApi
-      if (!this.bridge || !this.bridge.createVM) {
-        LogUtils.error('JSVM 桥接模块加载失败')
-        return false
-      }
+    } catch (loadErr) {
+      LogUtils.error('JSVM 桥接模块加载失败（requireNapi 异常）', JSON.stringify(loadErr))
+    }
+    if (!this.bridge || !this.bridge.createVM) {
+      LogUtils.error('JSVM 桥接模块加载失败（模块为空或无 createVM）')
+      return false
+    }
+    LogUtils.info('JSVM 桥接模块加载成功')
 
-      // 创建 VM（传入 request 回调）
+    // 2. 创建 VM
+    try {
       this.handle = this.bridge.createVM((requestId: string, url: string, optionsJson: string) => {
         this.handleNativeEvent(requestId, url, optionsJson)
       })
-      if (!this.handle) {
-        LogUtils.error('JSVM VM 创建失败')
-        return false
-      }
-
-      // 注入 lx 运行环境 + 执行用户音源脚本（一次执行，脚本可访问 lx 全局）
-      this.bridge.evalScript(this.handle, PRELOAD_SCRIPT + '\n' + this.scriptContent)
-      this.isReady = true
-      LogUtils.info(`JSVM 沙箱初始化完成: ${this.info.name} v${this.info.version}`)
-      return true
-    } catch (err) {
-      LogUtils.error('JSVM 沙箱初始化失败', JSON.stringify(err))
+    } catch (vmErr) {
+      LogUtils.error('JSVM VM 创建异常', JSON.stringify(vmErr))
       return false
     }
+    if (!this.handle) {
+      LogUtils.error('JSVM VM 创建失败（返回 0）')
+      return false
+    }
+    LogUtils.info(`JSVM VM 创建成功: handle=${this.handle}`)
+
+    // 3. 注入 lx 运行环境
+    try {
+      const preloadRet = this.bridge.evalScript(this.handle, PRELOAD_SCRIPT)
+      LogUtils.info(`lx 环境注入结果: ${preloadRet}`)
+    } catch (preloadErr) {
+      LogUtils.error('lx 环境注入异常', JSON.stringify(preloadErr))
+      return false
+    }
+
+    // 4. 执行用户音源脚本
+    try {
+      const scriptRet = this.bridge.evalScript(this.handle, this.scriptContent)
+      LogUtils.info(`音源脚本执行结果: ${scriptRet}`)
+      // 检查脚本执行是否报错（native 在出错时返回错误信息字符串）
+      if (scriptRet && (scriptRet.includes('Error') || scriptRet.includes('error') || scriptRet.includes('异常'))) {
+        LogUtils.error(`音源脚本执行报错: ${scriptRet}`)
+        return false
+      }
+    } catch (scriptErr) {
+      LogUtils.error('音源脚本执行异常', JSON.stringify(scriptErr))
+      return false
+    }
+
+    // 5. 验证 lx 全局对象就绪
+    try {
+      const checkRet = this.bridge.callGlobalFunction(this.handle, '__lx_check__', '[]')
+      LogUtils.info(`lx 环境校验: ${checkRet}`)
+      if (checkRet !== '"ok"' && checkRet !== 'ok') {
+        LogUtils.error(`lx 环境校验失败: ${checkRet}`)
+        return false
+      }
+    } catch (checkErr) {
+      LogUtils.error('lx 环境校验异常', JSON.stringify(checkErr))
+      return false
+    }
+
+    this.isReady = true
+    LogUtils.info(`JSVM 沙箱初始化完成: ${this.info.name} v${this.info.version}`)
+    return true
   }
 
   /** 销毁沙箱 */
