@@ -9,8 +9,7 @@ struct Index {
   @State showSideBar: boolean = false
 
   aboutToAppear(): void {
-    // 默认打开正在播放页
-    router.pushUrl({ url: 'pages/NowPlayingPage' })
+    // 侧边栏导航 — 点击菜单项通过 router 跳转
   }
 
   build() {
@@ -35,12 +34,19 @@ struct Index {
       .height('100%')
       .backgroundColor('#2d2d3f')
 
-      // 内容区
+      // 内容区 — 请从侧边栏选择页面
       Column() {
-        NavigationContent()
+        Text('🎵 欢迎使用洛雪音乐~')
+          .fontSize(20)
+          .fontColor('#cdd6f4')
+        Text('请从左侧菜单选择功能')
+          .fontSize(14)
+          .fontColor('#6c7086')
+          .margin({ top: 8 })
       }
       .width('100%')
       .height('100%')
+      .justifyContent(FlexAlign.Center)
       .backgroundColor('#1e1e2e')
     }
     .sideBarWidth(200)

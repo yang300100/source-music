@@ -103,6 +103,14 @@ export enum PlayMode {
 }
 
 /**
+ * 热搜条目
+ */
+export interface HotSearchItem {
+  label: string
+  value: string
+}
+
+/**
  * 播放器状态
  */
 export enum PlayerStatus {

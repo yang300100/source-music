@@ -29,40 +29,40 @@ struct PlaylistListPage {
           Text('去搜索页添加喜欢的歌曲吧~').fontSize(12).fontColor('#585b70')
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Center)
-        return
-      }
+      } else {
+        List() {
+          ForEach(this.viewModel.playlists, (pl: LocalPlaylist) => {
+            ListItem() {
+              Row({ space: 12 }) {
+                Column({ space: 4 }) {
+                  Text(pl.name).fontSize(15).fontColor('#cdd6f4')
+                  Text(`${pl.songs.length} 首`).fontSize(12).fontColor('#6c7086')
+                }
+                .layoutWeight(1)
 
-      List() {
-        ForEach(this.viewModel.playlists, (pl: LocalPlaylist) => {
-          ListItem() {
-            Row({ space: 12 }) {
-              Column({ space: 4 }) {
-                Text(pl.name).fontSize(15).fontColor('#cdd6f4')
-                Text(`${pl.songs.length} 首`).fontSize(12).fontColor('#6c7086')
+                Text('▶')
+                  .fontSize(20)
+                  .fontColor('#a6e3a1')
+                  .onClick(() => {
+                    const player = PlayerEngine.getInstance()
+                    player.queue.replaceList(pl.songs)
+                    player.playCurrent()
+                  })
               }
-              .layoutWeight(1)
-
-              Text('▶')
-                .fontSize(20)
-                .fontColor('#a6e3a1')
-                .onClick(() => {
-                  const player = PlayerEngine.getInstance()
-                  player.queue.replaceList(pl.songs)
-                  player.playCurrent()
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+              .onClick(() => {
+                const navParams: Record<string, string> = { 'playlistId': pl.id }
+                router.pushUrl({
+                  url: 'pages/PlaylistDetailPage',
+                  params: navParams
                 })
-            }
-            .width('100%')
-            .padding({ left: 16, right: 16, top: 14, bottom: 14 })
-            .onClick(() => {
-              router.pushUrl({
-                url: 'pages/PlaylistDetailPage',
-                params: { playlistId: pl.id } as Record<string, Object>
               })
-            })
-          }
-        })
+            }
+          })
+        }
+        .width('100%').layoutWeight(1)
       }
-      .width('100%').layoutWeight(1)
     }
     .width('100%').height('100%').backgroundColor('#1e1e2e')
   }

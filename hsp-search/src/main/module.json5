@@ -1,0 +1,14 @@
+{
+  "module": {
+    "name": "hsp_search",
+    "type": "shared",
+    "description": "搜索模块",
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false
+  }
+}

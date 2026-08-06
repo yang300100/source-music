@@ -28,7 +28,7 @@ export class JSSandbox {
     LogUtils.warn('JSSandbox: 沙箱尚未完整实现，返回空结果')
 
     // 先做安全校验
-    const securityError = this.validateScript(scriptContent)
+    const securityError = JSSandbox.validateScript(scriptContent)
     if (securityError) {
       LogUtils.error('JSSandbox: 脚本安全校验未通过', securityError)
       return null

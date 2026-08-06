@@ -1,0 +1,11 @@
+{
+  "name": "hsp_source",
+  "version": "1.0.0",
+  "description": "音源引擎模块",
+  "main": "Index.ets",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "common": "file:../common"
+  }
+}

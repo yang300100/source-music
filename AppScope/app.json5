@@ -6,6 +6,6 @@
     "versionName": "0.1.0",
     "buildVersion": "1",
     "icon": "$media:layered_image",
-    "label": "洛雪音乐"
+    "label": "$string:app_name"
   }
 }

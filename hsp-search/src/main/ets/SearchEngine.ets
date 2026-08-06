@@ -56,17 +56,44 @@ export class SearchEngine {
         const existing = map.get(key)
 
         if (existing) {
-          // 合并音源信息到 _types
-          existing._types = existing._types ?? {}
-          Object.assign(existing._types, item.types)
+          // 合并音源信息到 _types（手动逐字段复制，避免 Object.assign）
+          if (!existing._types) {
+            existing._types = {} as Record<string, import('common').MusicQualityInfo>
+          }
+          const existingTypes = existing._types!
+          const itemTypes = item.types
+          const typeKeys = Object.keys(itemTypes)
+          for (let k = 0; k < typeKeys.length; k++) {
+            const key = typeKeys[k]
+            existingTypes[key] = itemTypes[key]
+          }
         } else {
-          item._types = { ...item.types }
+          const newTypes: Record<string, import('common').MusicQualityInfo> = {}
+          const itemTypes = item.types
+          const typeKeys = Object.keys(itemTypes)
+          for (let k = 0; k < typeKeys.length; k++) {
+            const key = typeKeys[k]
+            newTypes[key] = itemTypes[key]
+          }
+          item._types = newTypes
           map.set(key, item)
         }
       }
     }
 
-    return Array.from(map.values())
+    // 手动遍历 Map，避免使用受限的 forEach
+    const result: MusicItem[] = []
+    const mapKeys: string[] = []
+    map.forEach((_value: MusicItem, mapKey: string) => {
+      mapKeys.push(mapKey)
+    })
+    for (let i = 0; i < mapKeys.length; i++) {
+      const item = map.get(mapKeys[i])
+      if (item) {
+        result.push(item)
+      }
+    }
+    return result
   }
 
   /** 按音源优先级排序（数字越小越靠前） */

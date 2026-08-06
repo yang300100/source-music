@@ -1,0 +1,14 @@
+{
+  "module": {
+    "name": "hsp_player",
+    "type": "shared",
+    "description": "播放器模块",
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false
+  }
+}

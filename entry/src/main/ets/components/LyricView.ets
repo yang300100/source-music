@@ -19,33 +19,32 @@ export struct LyricView {
       .width('100%')
       .height('100%')
       .justifyContent(FlexAlign.Center)
-      return
-    }
+    } else {
+      List() {
+        ForEach(this.lyrics, (line: LyricLine, index: number) => {
+          ListItem() {
+            Column({ space: 2 }) {
+              Text(line.text)
+                .fontSize(index === this.currentIndex ? 18 : 14)
+                .fontWeight(index === this.currentIndex ? FontWeight.Bold : FontWeight.Normal)
+                .fontColor(index === this.currentIndex ? '#a6e3a1' : '#6c7086')
+                .animation({ duration: 300, curve: Curve.EaseOut })
 
-    List() {
-      ForEach(this.lyrics, (line: LyricLine, index: number) => {
-        ListItem() {
-          Column({ space: 2 }) {
-            Text(line.text)
-              .fontSize(index === this.currentIndex ? 18 : 14)
-              .fontWeight(index === this.currentIndex ? FontWeight.Bold : FontWeight.Normal)
-              .fontColor(index === this.currentIndex ? '#a6e3a1' : '#6c7086')
-              .animation({ duration: 300, curve: Curve.EaseOut })
-
-            if (line.transText && index === this.currentIndex) {
-              Text(line.transText)
-                .fontSize(13)
-                .fontColor('#585b70')
+              if (line.transText && index === this.currentIndex) {
+                Text(line.transText)
+                  .fontSize(13)
+                  .fontColor('#585b70')
+              }
             }
+            .width('100%')
+            .padding({ top: 6, bottom: 6 })
           }
-          .width('100%')
-          .padding({ top: 6, bottom: 6 })
-        }
-      })
+        })
+      }
+      .width('100%')
+      .height('100%')
+      .scrollBar(BarState.Off)
     }
-    .width('100%')
-    .height('100%')
-    .scrollBar(BarState.Off)
   }
 
   aboutToAppear(): void {

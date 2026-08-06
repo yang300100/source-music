@@ -6,7 +6,8 @@ import {
   LyricLine,
   PlaylistInfo,
   MusicQuality,
-  SourceType
+  SourceType,
+  HotSearchItem
 } from 'common'
 
 /**
@@ -27,7 +28,7 @@ export abstract class BaseSource implements SourceInstance {
   abstract getMusicInfo(songmid: string, quality: MusicQuality): Promise<MusicItem>
   abstract getLyric(songmid: string): Promise<LyricLine[]>
   abstract getPlaylistInfo(listid: string): Promise<PlaylistInfo>
-  abstract getHotSearch(): Promise<Array<{ label: string; value: string }>>
+  abstract getHotSearch(): Promise<HotSearchItem[]>
 
   /**
    * 解析 LRC 歌词文本为 LyricLine 数组
@@ -96,7 +97,7 @@ export class DemoSource extends BaseSource {
     throw new Error('演示音源不支持获取歌单')
   }
 
-  async getHotSearch(): Promise<Array<{ label: string; value: string }>> {
+  async getHotSearch(): Promise<HotSearchItem[]> {
     return []
   }
 }

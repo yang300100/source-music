@@ -86,18 +86,17 @@ struct SearchPage {
         Text('未找到相关歌曲').fontSize(15).fontColor('#6c7086')
       }
       .width('100%').height('100%').justifyContent(FlexAlign.Center)
-      return
+    } else {
+      List() {
+        ForEach(this.viewModel.results, (song: MusicItem) => {
+          ListItem() {
+            MusicItemView({ song: song })
+          }
+        })
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
     }
-
-    List() {
-      ForEach(this.viewModel.results, (song: MusicItem) => {
-        ListItem() {
-          MusicItemView({ song: song })
-        }
-      })
-    }
-    .width('100%')
-    .layoutWeight(1)
-    .scrollBar(BarState.Off)
   }
 }

@@ -1,4 +1,4 @@
-import { MusicItem, SearchResult, LyricLine, PlaylistInfo, MusicQuality, SourceType } from './MusicTypes'
+import { MusicItem, SearchResult, LyricLine, PlaylistInfo, MusicQuality, SourceType, HotSearchItem } from './MusicTypes'
 
 /**
  * 音源基本信息
@@ -27,7 +27,7 @@ export interface SourceInstance {
   getMusicInfo(songmid: string, quality: MusicQuality): Promise<MusicItem>
   getLyric(songmid: string): Promise<LyricLine[]>
   getPlaylistInfo(listid: string): Promise<PlaylistInfo>
-  getHotSearch(): Promise<Array<{ label: string; value: string }>>
+  getHotSearch(): Promise<HotSearchItem[]>
 }
 
 /**

@@ -52,26 +52,26 @@ export class PlayerEngine {
   private setupCallbacks(): void {
     if (!this.avPlayer) return
 
-    this.avPlayer.on('stateChange', (state: media.AVPlayerState) => {
+    this.avPlayer.on('stateChange', (state: string) => {
       switch (state) {
-        case media.AVPlayerState.IDLE:
-        case media.AVPlayerState.INITIALIZED:
+        case 'idle':
+        case 'initialized':
           this.status = PlayerStatus.IDLE
           break
-        case media.AVPlayerState.PREPARED:
+        case 'prepared':
           this.status = PlayerStatus.PLAYING
           this.startProgressTimer()
           break
-        case media.AVPlayerState.PLAYING:
+        case 'playing':
           this.status = PlayerStatus.PLAYING
           break
-        case media.AVPlayerState.PAUSED:
+        case 'paused':
           this.status = PlayerStatus.PAUSED
           break
-        case media.AVPlayerState.COMPLETED:
+        case 'completed':
           this.handleCompletion()
           break
-        case media.AVPlayerState.ERROR:
+        case 'error':
           this.status = PlayerStatus.ERROR
           LogUtils.error('AVPlayer 播放出错')
           break
@@ -86,7 +86,7 @@ export class PlayerEngine {
       this.currentProgress = time
     })
 
-    this.avPlayer.on('error', (err: media.AVPlayerError) => {
+    this.avPlayer.on('error', (err: Error) => {
       LogUtils.error('AVPlayer 错误', JSON.stringify(err))
       this.status = PlayerStatus.ERROR
     })

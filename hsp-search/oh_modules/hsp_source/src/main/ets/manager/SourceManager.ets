@@ -125,7 +125,7 @@ export class SourceManager {
     LogUtils.info(`聚合搜索: "${query}", ${enabled.length} 个音源`)
 
     const promises = enabled.map(source =>
-      source.search(query, page, quality).catch(err => {
+      source.search(query, page, quality).catch((err: Error) => {
         LogUtils.warn(`音源 ${source.info.name} 搜索失败`, JSON.stringify(err))
         return null
       })
