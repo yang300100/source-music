@@ -14,6 +14,7 @@ import {
 } from 'common'
 import { BaseSource, DemoSource } from '../api/SourceAPI'
 import { LocalFileSource } from '../sources/LocalFileSource'
+import { KugouSource } from '../sources/KugouSource'
 import { JSSourceAdapter } from '../sources/JSSourceAdapter'
 import { JSScriptSource } from '../sources/JSScriptSource'
 import { JSSandbox } from '../sandbox/JSSandbox'
@@ -61,6 +62,10 @@ export class SourceManager {
     const localFile = new LocalFileSource()
     localFile.priority = 50
     this.sources.push(localFile)
+
+    // 内置酷狗搜索音源（优先级 20，提供真实搜索能力）
+    const kugou = new KugouSource()
+    this.sources.push(kugou)
 
     // 恢复已保存的 JS 音源（读取脚本内容 → 重新创建沙箱）
     const saved = await StorageUtils.getObject<SavedSource[]>(STORAGE_KEY_SOURCES, [])
