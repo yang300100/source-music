@@ -4,6 +4,7 @@ import { SourceManager } from 'hsp_source'
 import { SearchEngine } from 'hsp_search'
 import { PlayerStatus, PlayMode, MusicItem, SourceInstance, SourceImportMethod, SourceImportResult, LocalPlaylist, LyricLine } from 'common'
 import { picker } from '@kit.CoreFileKit'
+import { ConfigurationConstant } from '@kit.AbilityKit'
 import { LyricView } from '../components/LyricView'
 import { MusicItemView } from '../components/MusicItemView'
 
@@ -653,6 +654,12 @@ struct SourceManageContent {
 // ============================================================
 @Component
 struct SettingsContent {
+  @State localSongCount: number = 0
+
+  aboutToAppear(): void {
+    this.localSongCount = SourceManager.getInstance().getLocalSongs().length
+  }
+
   build() {
     NavDestination() {
       Column() {
@@ -662,10 +669,21 @@ struct SettingsContent {
         List() {
           ListItem() {
             Row() {
+              Text('📂 导入本地音乐').fontSize(15).fontColor('#cdd6f4')
+              Blank()
+              Text(`${this.localSongCount} 首`).fontSize(13).fontColor('#6c7086')
+              Text('›').fontSize(15).fontColor('#6c7086').margin({ left: 8 })
+            }.width('100%').padding(16)
+            .onClick(() => { this.importLocalMusic() })
+          }
+
+          ListItem() {
+            Row() {
               Text('主题').fontSize(15).fontColor('#cdd6f4')
               Blank()
               Text('深色').fontSize(13).fontColor('#6c7086')
             }.width('100%').padding(16)
+            .onClick(() => { this.showThemeDialog() })
           }
 
           ListItem() {
@@ -674,6 +692,15 @@ struct SettingsContent {
               Blank()
               Text('320k').fontSize(13).fontColor('#6c7086')
             }.width('100%').padding(16)
+          }
+
+          ListItem() {
+            Row() {
+              Text('💾 备份与恢复').fontSize(15).fontColor('#cdd6f4')
+              Blank()
+              Text('›').fontSize(15).fontColor('#6c7086')
+            }.width('100%').padding(16)
+            .onClick(() => { this.showBackupDialog() })
           }
 
           ListItem() {
@@ -700,5 +727,83 @@ struct SettingsContent {
       .width('100%').height('100%').backgroundColor('#1e1e2e')
     }
     .hideTitleBar(true)
+  }
+
+  /** 导入本地音乐（文件选择器多选音频） */
+  private async importLocalMusic(): Promise<void> {
+    try {
+      const documentPicker = new picker.DocumentViewPicker()
+      const result = await documentPicker.select({
+        fileSuffixFilters: ['.mp3', '.flac', '.wav', '.ogg', '.aac', '.m4a'],
+        maxSelectNumber: 500,
+        selectMode: picker.DocumentSelectMode.FILE
+      })
+      if (result && result.length > 0) {
+        const count = await SourceManager.getInstance().importLocalFiles(result)
+        this.localSongCount = SourceManager.getInstance().getLocalSongs().length
+        AlertDialog.show({
+          title: '导入完成',
+          message: `成功导入 ${count} 首本地音乐，可在「搜索」页输入关键词或浏览本地音源查看`,
+          autoCancel: true
+        })
+      }
+    } catch (err) {
+      // 用户取消选择
+    }
+  }
+
+  /** 主题切换对话框 */
+  private showThemeDialog(): void {
+    AlertDialog.show({
+      title: '选择主题',
+      message: '深色 / 浅色',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '深色',
+        action: () => {
+          AppStorage.setOrCreate('themeMode', 'dark')
+          this.applyTheme('dark')
+        }
+      },
+      secondaryButton: {
+        value: '浅色',
+        action: () => {
+          AppStorage.setOrCreate('themeMode', 'light')
+          this.applyTheme('light')
+        }
+      }
+    })
+  }
+
+  /** 应用主题 */
+  private applyTheme(mode: string): void {
+    const appContext = getContext(this)
+    const colorMode = mode === 'light'
+      ? ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT
+      : ConfigurationConstant.ColorMode.COLOR_MODE_DARK
+    appContext.getApplicationContext().setColorMode(colorMode)
+  }
+
+  /** 备份恢复对话框 */
+  private showBackupDialog(): void {
+    AlertDialog.show({
+      title: '备份与恢复',
+      message: '导出 / 导入应用数据（歌单、音源、设置）',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '导出备份',
+        action: () => {
+          AlertDialog.show({ title: '提示', message: '备份导出将在后续版本支持，敬请期待', autoCancel: true })
+        }
+      },
+      secondaryButton: {
+        value: '恢复备份',
+        action: () => {
+          AlertDialog.show({ title: '提示', message: '备份恢复将在后续版本支持，敬请期待', autoCancel: true })
+        }
+      }
+    })
   }
 }

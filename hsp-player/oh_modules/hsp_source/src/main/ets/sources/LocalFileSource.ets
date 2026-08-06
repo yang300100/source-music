@@ -209,6 +209,86 @@ export class LocalFileSource extends BaseSource {
     }
   }
 
+  /**
+   * 从文件选择器导入音频文件（uri 列表）
+   * 文件选择器返回的 uri 具有临时访问权限，可直接读取
+   * @param uriList DocumentViewPicker 返回的文件 uri 数组
+   */
+  async importFiles(uriList: string[]): Promise<number> {
+    if (!uriList || uriList.length === 0) return 0
+    LogUtils.info(`导入本地音乐文件: ${uriList.length} 个`)
+
+    let addedCount = 0
+    const existingIds = new Set(this.localSongs.map(s => s.songmid))
+
+    for (let i = 0; i < uriList.length; i++) {
+      const uri = uriList[i]
+      try {
+        const song = await this.createMusicItemFromUri(uri)
+        if (song && !existingIds.has(song.songmid)) {
+          this.localSongs.push(song)
+          existingIds.add(song.songmid)
+          addedCount++
+        }
+      } catch (err) {
+        LogUtils.warn(`导入文件失败: ${uri}`, JSON.stringify(err))
+      }
+    }
+
+    LogUtils.info(`本地音乐导入完成: 新增 ${addedCount} 首, 总计 ${this.localSongs.length} 首`)
+    return addedCount
+  }
+
+  /** 从文件 uri 创建 MusicItem */
+  private async createMusicItemFromUri(uri: string): Promise<MusicItem | null> {
+    try {
+      const fdFile = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY)
+      const stat = fileIo.statSync(uri)
+
+      // 从 uri 提取文件名
+      const lastSlash = uri.lastIndexOf('/')
+      let fileName = lastSlash >= 0 ? uri.substring(lastSlash + 1) : uri
+      // 去掉 uri 参数
+      const qIdx = fileName.indexOf('?')
+      if (qIdx > 0) fileName = fileName.substring(0, qIdx)
+      // 去掉扩展名
+      const dotIndex = fileName.lastIndexOf('.')
+      const baseName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName
+
+      // 尝试解析 "歌手 - 歌名" 格式
+      let singer = '未知歌手'
+      let name = baseName
+      const dashIndex = baseName.indexOf(' - ')
+      if (dashIndex > 0) {
+        singer = baseName.substring(0, dashIndex).trim()
+        name = baseName.substring(dashIndex + 3).trim()
+      }
+
+      const song: MusicItem = {
+        songmid: `local_${uri}`,
+        name: name,
+        singer: singer,
+        albumName: '本地音乐',
+        interval: 0,
+        imgUrl: '',
+        lyricUrl: '',
+        source: SourceType.LOCAL,
+        types: {
+          '320k': {
+            url: `file://${uri}`,
+            size: stat.size,
+            br: 320000
+          }
+        }
+      }
+      fileIo.closeSync(fdFile)
+      return song
+    } catch (err) {
+      LogUtils.warn(`无法读取音乐文件: ${uri}`, JSON.stringify(err))
+      return null
+    }
+  }
+
   /** 获取已扫描的歌曲列表 */
   getSongs(): MusicItem[] {
     return [...this.localSongs]

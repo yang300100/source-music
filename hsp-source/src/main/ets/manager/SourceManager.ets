@@ -75,6 +75,25 @@ export class SourceManager {
     return this.sources.find(s => s.info.id === id)
   }
 
+  /** 获取本地文件音源实例 */
+  getLocalFileSource(): LocalFileSource | undefined {
+    return this.sources.find(s => s.info.id === 'local_source') as LocalFileSource
+  }
+
+  /** 导入本地音乐文件（文件选择器多选） */
+  async importLocalFiles(uriList: string[]): Promise<number> {
+    const localSource = this.getLocalFileSource()
+    if (!localSource) return 0
+    return await localSource.importFiles(uriList)
+  }
+
+  /** 获取本地音乐歌曲列表 */
+  getLocalSongs(): MusicItem[] {
+    const localSource = this.getLocalFileSource()
+    if (!localSource) return []
+    return localSource.getSongs()
+  }
+
   /** 导入音源 */
   async importSource(method: SourceImportMethod, pathOrUrl: string): Promise<SourceImportResult> {
     switch (method) {
