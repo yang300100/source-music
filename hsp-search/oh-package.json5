@@ -1,0 +1,12 @@
+{
+  "name": "hsp_search",
+  "version": "1.0.0",
+  "description": "搜索模块",
+  "main": "Index.ets",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "common": "file:../common",
+    "hsp_source": "file:../hsp-source"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "hsp_player",
+  "version": "1.0.0",
+  "description": "播放器模块",
+  "main": "Index.ets",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "common": "file:../common"
+  }
+}

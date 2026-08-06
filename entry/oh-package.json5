@@ -5,6 +5,12 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {}
+  "dependencies": {
+    "common": "file:../common",
+    "hsp_source": "file:../hsp-source",
+    "hsp_player": "file:../hsp-player",
+    "hsp_search": "file:../hsp-search",
+    "hsp_playlist": "file:../hsp-playlist"
+  }
 }
 

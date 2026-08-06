@@ -1,0 +1,11 @@
+{
+  "name": "hsp_playlist",
+  "version": "1.0.0",
+  "description": "歌单管理模块",
+  "main": "Index.ets",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "common": "file:../common"
+  }
+}
