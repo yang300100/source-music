@@ -161,8 +161,8 @@ export class SourceManager {
     }
   }
 
-  /** 注册 JS 音源（解析脚本并创建适配器） */
-  private registerJSSource(scriptContent: string, fileName: string = ''): SourceImportResult {
+  /** 注册 JS 音源（JSVM 完整沙箱执行） */
+  private async registerJSSource(scriptContent: string, fileName: string = ''): Promise<SourceImportResult> {
     // 安全校验
     const securityError = JSSandbox.validateScript(scriptContent)
     if (securityError) {
@@ -170,23 +170,28 @@ export class SourceManager {
       return { success: false, error: `安全校验失败: ${securityError}` }
     }
 
-    // 创建 JS 适配器（元信息从脚本头部注释解析，解析不到时用文件名/日期兜底）
-    const adapter = new JSSourceAdapter(scriptContent, fileName)
+    // 解析元信息（头部注释 @标签，兜底用文件名/日期）
+    const sourceInfo = JSSourceAdapter.parseSourceInfo(scriptContent, fileName)
 
-    // 检查是否已存在
-    const existing = this.sources.find(s => s.info.id === adapter.info.id)
+    // 创建 JSVM 沙箱音源（真正执行脚本）
+    const source = await JSSandbox.createSource(scriptContent, sourceInfo)
+    if (!source) {
+      return { success: false, error: 'JSVM 沙箱初始化失败，请检查脚本兼容性' }
+    }
+
+    // 检查是否已存在（更新而非重复添加）
+    const existing = this.sources.find(s => s.info.id === source.info.id)
     if (existing) {
-      // 更新现有音源
       const idx = this.sources.indexOf(existing)
-      this.sources[idx] = adapter
-      LogUtils.info(`更新音源: ${adapter.info.name}`)
+      this.sources[idx] = source
+      LogUtils.info(`更新音源: ${source.info.name}`)
     } else {
-      this.sources.push(adapter)
-      LogUtils.info(`导入音源: ${adapter.info.name} v${adapter.info.version}`)
+      this.sources.push(source)
+      LogUtils.info(`导入音源: ${source.info.name} v${source.info.version}`)
     }
 
     this.save()
-    return { success: true, source: adapter }
+    return { success: true, source: source }
   }
 
   /** 移除音源 */

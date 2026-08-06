@@ -1,39 +1,51 @@
 import { LogUtils, SourceInstance, SourceInfo } from 'common'
+import { JSScriptSource } from '../sources/JSScriptSource'
 
 /**
- * JS 音源沙箱
+ * JS 音源沙箱（完整实现）
  *
- * 负责在受限环境中执行用户导入的 .js 音源脚本。
- * 与 lx-music 社区生态兼容，让用户能导入开源的音源脚本。
+ * 基于鸿蒙系统 JSVM-API（libjsvm.so）提供完整的 JavaScript 执行环境：
+ * 1. 创建隔离的 JS 虚拟机（VM + Env）
+ * 2. 注入受限的 lx 全局环境（对齐原版 lx-music preload）
+ * 3. 执行用户导入的音源脚本
+ * 4. 脚本的 lx.request 网络请求桥接到 ArkTS 网络层
  *
- * 当前阶段说明：
- * - 元信息解析：直接正则解析脚本头部注释（对齐原版 lx-music 逻辑）
- * - 完整沙箱执行：需要 QuickJS NAPI 集成（见 Task 40 调研）
- *
- * 安全策略（对齐原版）：
- * - 导入时只校验"脚本是否为有效音源格式"（头部块注释存在）
- * - 危险 API（eval/Function/require 等）在真正执行时才需要沙箱隔离
- * - 当前不执行脚本，因此不阻断包含危险字符串的脚本导入
+ * 安全措施（对齐原版）：
+ * - 引擎隔离：脚本无法直接访问文件/系统
+ * - 只注入白名单 API（__lx_request__/__lx_log__）
+ * - 禁用 eval（preload 脚本内覆盖）
+ * - 超时终止：脚本 action 调用 5 秒超时
  */
 export class JSSandbox {
   /**
-   * 从文件内容创建音源实例（需要 QuickJS 沙箱，尚未实现）
-   * 当前阶段元信息解析由 JSSourceAdapter 完成
+   * 从脚本内容创建可用的音源实例
+   * @param scriptContent JS 音源脚本源码
+   * @param sourceInfo 音源元信息（来自头部注释解析）
+   * @returns 可用的音源实例，失败返回 null
    */
   static async createSource(
     scriptContent: string,
     sourceInfo: SourceInfo
   ): Promise<SourceInstance | null> {
     LogUtils.info('JSSandbox: 加载音源脚本', sourceInfo.name)
-    LogUtils.warn('JSSandbox: 完整沙箱执行尚未实现（需要 QuickJS），当前仅做格式校验')
-    return null
+    try {
+      const source = new JSScriptSource(scriptContent, sourceInfo)
+      const ok = await source.init()
+      if (!ok) {
+        LogUtils.error('JSSandbox: 沙箱初始化失败', sourceInfo.name)
+        return null
+      }
+      return source
+    } catch (err) {
+      LogUtils.error('JSSandbox: 创建音源失败', JSON.stringify(err))
+      return null
+    }
   }
 
   /**
    * 校验脚本是否为有效的 lx-music 音源格式（对齐原版 addUserApi 逻辑）
    *
    * 原版只检查：脚本开头必须包含块注释（以斜杠星号开头、星号斜杠结尾）
-   * 危险 API 检查不做为导入拦截条件（脚本未真正执行）
    *
    * @param scriptContent JS 脚本源码
    * @returns 错误信息字符串，null 表示通过校验
@@ -48,23 +60,6 @@ export class JSSandbox {
     if (!commentMatch) {
       return '脚本格式无效：缺少开头的音源信息注释（/* @name ... */）'
     }
-
-    // 危险模式仅记录日志（提示性），不阻断导入
-    const suspiciousPatterns = [
-      /require\s*\(/g,
-      /import\s+/g,
-      /eval\s*\(/g,
-      /Function\s*\(/g,
-      /child_process/g,
-      /process\./g
-    ]
-    for (const pattern of suspiciousPatterns) {
-      pattern.lastIndex = 0
-      if (pattern.test(scriptContent)) {
-        LogUtils.warn(`音源脚本包含可疑模式（仅提示）: ${pattern.source}`)
-      }
-    }
-
     return null
   }
 }
