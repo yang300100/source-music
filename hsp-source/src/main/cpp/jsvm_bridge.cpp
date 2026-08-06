@@ -510,7 +510,9 @@ napi_value NapiCallGlobalFunction(napi_env env, napi_callback_info info) {
                         for (uint32_t i = 0; i < argCount; i++) {
                             JSVM_Value item = nullptr;
                             OH_JSVM_GetElement(inst->env, args, i, &item);
-                            argvList.push_back(item);
+                            if (item != nullptr) {
+                                argvList.push_back(item);
+                            }
                         }
                     }
                 }
@@ -587,17 +589,20 @@ napi_value NapiSetNativeResult(napi_env env, napi_callback_info info) {
         if (scopes.open(inst->vm, inst->env)) {
             JSVM_Value cbFn = nullptr;
             if (OH_JSVM_GetReferenceValue(inst->env, pc->callbackRef, &cbFn) == JSVM_OK && cbFn != nullptr) {
+                // 参数构造：JsonToValue 失败时必须用 null 兜底，禁止传 nullptr 给 CallFunction（会段错误）
                 JSVM_Value argvCall[2];
-                if (errorJson == "null" || errorJson.empty()) {
-                    OH_JSVM_GetNull(inst->env, &argvCall[0]);
-                } else {
-                    argvCall[0] = JsonToValue(inst->env, errorJson);
+                JSVM_Value errVal = (errorJson == "null" || errorJson.empty())
+                    ? nullptr : JsonToValue(inst->env, errorJson);
+                if (errVal == nullptr) {
+                    OH_JSVM_GetNull(inst->env, &errVal);
                 }
-                if (responseJson.empty()) {
-                    OH_JSVM_GetNull(inst->env, &argvCall[1]);
-                } else {
-                    argvCall[1] = JsonToValue(inst->env, responseJson);
+                argvCall[0] = errVal;
+                JSVM_Value respVal = responseJson.empty()
+                    ? nullptr : JsonToValue(inst->env, responseJson);
+                if (respVal == nullptr) {
+                    OH_JSVM_GetNull(inst->env, &respVal);
                 }
+                argvCall[1] = respVal;
                 JSVM_Value global = nullptr;
                 OH_JSVM_GetGlobal(inst->env, &global);
                 JSVM_Value result = nullptr;
