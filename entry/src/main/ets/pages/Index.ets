@@ -671,12 +671,13 @@ struct SourceManageContent {
                 .layoutWeight(1)
 
                 Toggle({ type: ToggleType.Switch, isOn: source.enabled })
-                  .enabled(source.info.id !== 'kugou')
+                  .enabled(source.info.id !== 'kugou' && source.info.id !== 'netease')
                   .onChange((isOn: boolean) => {
                     this.manager.toggleSource(source.info.id, isOn)
                   })
 
-                if (source.info.id !== 'demo' && source.info.id !== 'local_source' && source.info.id !== 'kugou') {
+                if (source.info.id !== 'demo' && source.info.id !== 'local_source' &&
+                  source.info.id !== 'kugou' && source.info.id !== 'netease') {
                   Text('🗑').fontSize(16)
                     .onClick(() => {
                       this.manager.removeSource(source.info.id)
@@ -699,9 +700,10 @@ struct SourceManageContent {
   /** 音源类型标注（帮助用户理解音源能力） */
   private getSourceTypeLabel(id: string, isNative: boolean): string {
     if (id === 'kugou') return '🔍 搜索 + 解析'
+    if (id === 'netease') return '🔍 搜索 + 歌词（VIP 歌曲换源解析）'
     if (id === 'local_source') return '📂 本地文件'
     if (id === 'demo') return '🧪 演示'
-    return isNative ? '🔧 原生音源' : '📜 JS 音源（多为解析型，搜索需酷狗源）'
+    return isNative ? '🔧 原生音源' : '📜 JS 音源（多为解析型，搜索需酷狗/网易源）'
   }
 
   /** 从本地文件导入音源 */

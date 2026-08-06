@@ -15,6 +15,7 @@ import {
 import { BaseSource, DemoSource } from '../api/SourceAPI'
 import { LocalFileSource } from '../sources/LocalFileSource'
 import { KugouSource } from '../sources/KugouSource'
+import { NeteaseSource } from '../sources/NeteaseSource'
 import { JSSourceAdapter } from '../sources/JSSourceAdapter'
 import { JSScriptSource } from '../sources/JSScriptSource'
 import { JSSandbox } from '../sandbox/JSSandbox'
@@ -66,6 +67,10 @@ export class SourceManager {
     // 内置酷狗搜索音源（优先级 20，提供真实搜索能力）
     const kugou = new KugouSource()
     this.sources.push(kugou)
+
+    // 内置网易云搜索音源（优先级 25）
+    const netease = new NeteaseSource()
+    this.sources.push(netease)
 
     // 恢复已保存的 JS 音源（读取脚本内容 → 重新创建沙箱）
     const saved = await StorageUtils.getObject<SavedSource[]>(STORAGE_KEY_SOURCES, [])
