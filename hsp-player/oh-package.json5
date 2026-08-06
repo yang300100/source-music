@@ -6,6 +6,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "common": "file:../common"
+    "common": "file:../common",
+    "hsp_source": "file:../hsp-source"
   }
 }

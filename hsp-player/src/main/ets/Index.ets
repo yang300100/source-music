@@ -1,2 +1,2 @@
-// hsp_player 播放器模块 - 占位，后续任务填充
+// hsp_player 模块内部索引 - 占位，统一导出由模块根 Index.ets 管理
 export {}
