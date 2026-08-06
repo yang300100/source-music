@@ -86,6 +86,7 @@ export class PlayerEngine {
     if (!this.avPlayer) return
 
     this.avPlayer.on('stateChange', (state: string) => {
+      LogUtils.info(`[播放] 状态变化: ${state}`)
       switch (state) {
         case 'idle':
         case 'initialized':
@@ -112,6 +113,7 @@ export class PlayerEngine {
     })
 
     this.avPlayer.on('durationUpdate', (duration: number) => {
+      LogUtils.info(`[播放] 时长更新: ${duration}`)
       this.duration = duration
     })
 
@@ -156,9 +158,12 @@ export class PlayerEngine {
         this.status = PlayerStatus.ERROR
         return
       }
+      LogUtils.info(`[播放] URL: ${playUrl.substring(0, 150)}`)
 
       // 重置播放器
+      LogUtils.info('[播放] 开始 reset')
       await this.avPlayer.reset()
+      LogUtils.info('[播放] reset 完成')
 
       // 判断是本地文件还是网络流
       if (playUrl.startsWith('file://')) {
@@ -172,12 +177,16 @@ export class PlayerEngine {
         }
         this.avPlayer.fdSrc = fdDesc
       } else {
+        LogUtils.info('[播放] 设置 URL 数据源')
         this.avPlayer.url = playUrl
       }
 
       this.status = PlayerStatus.BUFFERING
+      LogUtils.info('[播放] 开始 prepare')
       await this.avPlayer.prepare()
+      LogUtils.info('[播放] prepare 完成')
       await this.avPlayer.play()
+      LogUtils.info('[播放] play() 调用完成')
 
       // 异步获取歌词
       this.fetchLyrics(song)
