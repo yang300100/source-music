@@ -3,7 +3,8 @@ import { PlaylistManager } from 'hsp_playlist'
 import { SourceManager } from 'hsp_source'
 import { SearchEngine } from 'hsp_search'
 import { PlayerStatus, PlayMode, MusicItem, SourceInstance, SourceImportMethod, SourceImportResult, LocalPlaylist, LyricLine } from 'common'
-import { picker } from '@kit.CoreFileKit'
+import { picker, fileIo } from '@kit.CoreFileKit'
+import { util } from '@kit.ArkTS'
 import { ConfigurationConstant } from '@kit.AbilityKit'
 import { LyricView } from '../components/LyricView'
 import { MusicItemView } from '../components/MusicItemView'
@@ -489,6 +490,8 @@ struct PlaylistDetailContent {
               Text(`${this.playlist!.songs.length} 首`).fontSize(12).fontColor('#6c7086')
             }
             Blank()
+            Text('导出').fontSize(13).fontColor('#89b4fa').margin({ right: 12 })
+              .onClick(() => { this.exportPlaylist() })
             Text('▶ 播放全部').fontSize(14).fontColor('#a6e3a1')
               .onClick(() => {
                 const player = PlayerEngine.getInstance()
@@ -522,6 +525,33 @@ struct PlaylistDetailContent {
       .width('100%').height('100%').backgroundColor('#1e1e2e')
     }
     .hideTitleBar(true)
+  }
+
+  /** 导出歌单为 .lxmc 文件 */
+  private async exportPlaylist(): Promise<void> {
+    const lxmc = PlaylistManager.getInstance().exportToLxmc(this.playlistId)
+    if (!lxmc) {
+      AlertDialog.show({ title: '导出失败', message: '歌单不存在或为空', autoCancel: true })
+      return
+    }
+    try {
+      const documentPicker = new picker.DocumentViewPicker()
+      const saveResult = await documentPicker.save({
+        newFileNames: [`${this.playlist?.name ?? '歌单'}.lxmc`]
+      })
+      const saveUri = saveResult && saveResult.length > 0 ? saveResult[0] : ''
+      if (saveUri) {
+        // 写入文件内容
+        const file = fileIo.openSync(saveUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE)
+        const encoder = new util.TextEncoder()
+        const buffer = encoder.encodeInto(lxmc)
+        fileIo.writeSync(file.fd, buffer)
+        fileIo.closeSync(file)
+        AlertDialog.show({ title: '导出成功', message: '歌单已导出为 .lxmc 文件', autoCancel: true })
+      }
+    } catch (err) {
+      AlertDialog.show({ title: '导出失败', message: JSON.stringify(err), autoCancel: true })
+    }
   }
 }
 
@@ -789,21 +819,107 @@ struct SettingsContent {
   private showBackupDialog(): void {
     AlertDialog.show({
       title: '备份与恢复',
-      message: '导出 / 导入应用数据（歌单、音源、设置）',
+      message: '导出 / 导入应用数据（歌单、本地音乐列表）',
       autoCancel: true,
       alignment: DialogAlignment.Center,
       primaryButton: {
         value: '导出备份',
-        action: () => {
-          AlertDialog.show({ title: '提示', message: '备份导出将在后续版本支持，敬请期待', autoCancel: true })
-        }
+        action: () => { this.exportBackup() }
       },
       secondaryButton: {
         value: '恢复备份',
-        action: () => {
-          AlertDialog.show({ title: '提示', message: '备份恢复将在后续版本支持，敬请期待', autoCancel: true })
-        }
+        action: () => { this.importBackup() }
       }
     })
+  }
+
+  /** 导出备份：所有歌单 → 单个 .lxmc 文件 */
+  private async exportBackup(): Promise<void> {
+    const playlists = PlaylistManager.getInstance().getAll()
+    if (playlists.length === 0) {
+      AlertDialog.show({ title: '提示', message: '没有可导出的歌单', autoCancel: true })
+      return
+    }
+    try {
+      // 组装备份数据结构
+      const backupData: Record<string, Object> = {}
+      backupData['type'] = 'lxMusicBackup'
+      backupData['version'] = '1.0.0'
+      backupData['exportTime'] = Date.now()
+      const emptyList: Array<Record<string, Object>> = []
+      backupData['playlists'] = emptyList
+      const plList: Array<Record<string, Object>> = []
+      for (const pl of playlists) {
+        const lxmcStr = PlaylistManager.getInstance().exportToLxmc(pl.id)
+        try {
+          plList.push(JSON.parse(lxmcStr))
+        } catch (e) {
+          // 跳过无法序列化的歌单
+        }
+      }
+      backupData['playlists'] = plList
+
+      const documentPicker = new picker.DocumentViewPicker()
+      const saveResult = await documentPicker.save({
+        newFileNames: [`lx_music_backup_${Date.now()}.lxmc`]
+      })
+      const saveUri = saveResult && saveResult.length > 0 ? saveResult[0] : ''
+      if (saveUri) {
+        const file = fileIo.openSync(saveUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE)
+        const encoder = new util.TextEncoder()
+        const buffer = encoder.encodeInto(JSON.stringify(backupData))
+        fileIo.writeSync(file.fd, buffer)
+        fileIo.closeSync(file)
+        AlertDialog.show({ title: '备份成功', message: `已导出 ${plList.length} 个歌单`, autoCancel: true })
+      }
+    } catch (err) {
+      AlertDialog.show({ title: '备份失败', message: JSON.stringify(err), autoCancel: true })
+    }
+  }
+
+  /** 恢复备份：读取 .lxmc 文件并重建歌单 */
+  private async importBackup(): Promise<void> {
+    try {
+      const documentPicker = new picker.DocumentViewPicker()
+      const result = await documentPicker.select({
+        fileSuffixFilters: ['.lxmc', '.json'],
+        maxSelectNumber: 1
+      })
+      if (!result || result.length === 0) return
+
+      // 读取文件内容
+      const file = fileIo.openSync(result[0], fileIo.OpenMode.READ_ONLY)
+      const stat = fileIo.statSync(result[0])
+      const buf = new ArrayBuffer(stat.size)
+      fileIo.readSync(file.fd, buf)
+      fileIo.closeSync(file)
+      const decoder = util.TextDecoder.create('utf-8')
+      const content = decoder.decodeToString(new Uint8Array(buf))
+
+      // 解析并导入
+      const parsed = JSON.parse(content) as Record<string, Object>
+      if (parsed['type'] === 'lxMusicBackup') {
+        // 备份文件：包含多个歌单
+        const plList = parsed['playlists'] as Array<Record<string, Object>>
+        if (plList && plList.length > 0) {
+          let count = 0
+          for (const pl of plList) {
+            const created = await PlaylistManager.getInstance().importFromLxmc(JSON.stringify(pl))
+            if (created) count++
+          }
+          AlertDialog.show({ title: '恢复成功', message: `已恢复 ${count} 个歌单`, autoCancel: true })
+        }
+      } else {
+        // 单个 .lxmc 歌单文件
+        const created = await PlaylistManager.getInstance().importFromLxmc(content)
+        if (created) {
+          AlertDialog.show({ title: '恢复成功', message: `已导入歌单: ${created.name}`, autoCancel: true })
+        } else {
+          AlertDialog.show({ title: '恢复失败', message: '文件格式不支持，请选择 .lxmc 歌单文件', autoCancel: true })
+        }
+      }
+    } catch (err) {
+      AlertDialog.show({ title: '恢复失败', message: `解析失败: ${JSON.stringify(err)}`, autoCancel: true })
+    }
   }
 }
