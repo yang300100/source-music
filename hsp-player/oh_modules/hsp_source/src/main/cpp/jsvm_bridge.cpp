@@ -38,6 +38,21 @@ static JSVM_Value GetGlobalProperty(JSVM_Env env, const char *name) {
 
 /** 在 JSVM 中执行 JSON.stringify 将值转为 C++ 字符串（调用前必须已 OpenHandleScope） */
 static std::string ValueToJson(JSVM_Env env, JSVM_Value value) {
+    if (value == nullptr) return "";
+    // 特殊类型直接处理，避免对 undefined/null 调用 stringify 再取字符串（可能崩溃）
+    JSVM_ValueType type = JSVM_UNDEFINED;
+    if (OH_JSVM_Typeof(env, value, &type) != JSVM_OK) return "";
+    if (type == JSVM_UNDEFINED) return "undefined";
+    if (type == JSVM_NULL) return "null";
+    // 非对象/字符串的值先转字符串（数组在 JSVM 中也是 OBJECT 类型）
+    if (type != JSVM_OBJECT && type != JSVM_STRING) {
+        JSVM_Value coerced = nullptr;
+        if (OH_JSVM_CoerceToString(env, value, &coerced) == JSVM_OK && coerced != nullptr) {
+            value = coerced;
+        } else {
+            return "";
+        }
+    }
     JSVM_Value jsonObj = GetGlobalProperty(env, "JSON");
     if (jsonObj == nullptr) return "";
     JSVM_Value stringifyFn = nullptr;
@@ -45,6 +60,16 @@ static std::string ValueToJson(JSVM_Env env, JSVM_Value value) {
     JSVM_Value argv[1] = { value };
     JSVM_Value result = nullptr;
     if (OH_JSVM_CallFunction(env, jsonObj, stringifyFn, 1, argv, &result) != JSVM_OK) return "";
+    if (result == nullptr) return "";
+    // stringify 结果必须是字符串才能安全取内容
+    JSVM_ValueType resultType = JSVM_UNDEFINED;
+    if (OH_JSVM_Typeof(env, result, &resultType) != JSVM_OK) return "";
+    if (resultType == JSVM_UNDEFINED || resultType == JSVM_NULL) return "";
+    if (resultType != JSVM_STRING) {
+        JSVM_Value coerced = nullptr;
+        if (OH_JSVM_CoerceToString(env, result, &coerced) != JSVM_OK || coerced == nullptr) return "";
+        result = coerced;
+    }
     size_t len = 0;
     if (OH_JSVM_GetValueStringUtf8(env, result, nullptr, 0, &len) != JSVM_OK) return "";
     std::string str(len, '\0');
@@ -56,6 +81,7 @@ static std::string ValueToJson(JSVM_Env env, JSVM_Value value) {
 
 /** 在 JSVM 中执行 JSON.parse 将字符串转为值（调用前必须已 OpenHandleScope） */
 static JSVM_Value JsonToValue(JSVM_Env env, const std::string &json) {
+    if (json.empty()) return nullptr;
     JSVM_Value jsonObj = GetGlobalProperty(env, "JSON");
     if (jsonObj == nullptr) return nullptr;
     JSVM_Value parseFn = nullptr;
@@ -63,7 +89,13 @@ static JSVM_Value JsonToValue(JSVM_Env env, const std::string &json) {
     JSVM_Value argStr = nullptr;
     if (OH_JSVM_CreateStringUtf8(env, json.c_str(), json.length(), &argStr) != JSVM_OK) return nullptr;
     JSVM_Value result = nullptr;
-    if (OH_JSVM_CallFunction(env, jsonObj, parseFn, 1, &argStr, &result) != JSVM_OK) return nullptr;
+    JSVM_Status status = OH_JSVM_CallFunction(env, jsonObj, parseFn, 1, &argStr, &result);
+    if (status != JSVM_OK) {
+        // 清除可能挂起的异常，避免影响后续调用
+        JSVM_Value ex = nullptr;
+        OH_JSVM_GetAndClearLastException(env, &ex);
+        return nullptr;
+    }
     return result;
 }
 
@@ -342,8 +374,9 @@ napi_value NapiEvalScript(napi_env env, napi_callback_info info) {
         JSVM_Script compiledScript = nullptr;
         JSVM_Value result = nullptr;
         JSVM_Status status = JSVM_GENERIC_FAILURE;
+        bool cacheRejected = false;
         if (OH_JSVM_CreateStringUtf8(inst->env, script.c_str(), script.length(), &scriptValue) == JSVM_OK &&
-            OH_JSVM_CompileScript(inst->env, scriptValue, nullptr, 0, false, nullptr, &compiledScript) == JSVM_OK) {
+            OH_JSVM_CompileScript(inst->env, scriptValue, nullptr, 0, false, &cacheRejected, &compiledScript) == JSVM_OK) {
             status = OH_JSVM_RunScript(inst->env, compiledScript, &result);
         }
         if (status == JSVM_OK && result != nullptr) {
