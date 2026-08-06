@@ -331,6 +331,11 @@ export class JSScriptSource extends BaseSource {
     this.isReady = false
   }
 
+  /** 获取脚本内容（用于持久化保存） */
+  getScriptContent(): string {
+    return this.scriptContent
+  }
+
   // ===== 原生事件处理（JS 侧 request/结果通知） =====
 
   private handleNativeEvent(requestId: string, url: string, optionsJson: string): void {
@@ -346,6 +351,7 @@ export class JSScriptSource extends BaseSource {
   /** 发送网络请求并回传结果给 JS */
   private async doNetworkRequest(requestId: string, url: string, optionsJson: string): Promise<void> {
     if (!this.bridge) return
+    LogUtils.info(`[沙箱] 网络请求: ${url.substring(0, 120)}`)
     try {
       let opts: Record<string, Object> = {}
       try {
@@ -357,6 +363,7 @@ export class JSScriptSource extends BaseSource {
       const headers = (opts['headers'] as Record<string, string>) ?? {}
       const body = (opts['body'] as string) ?? ''
       const respBody = await NetUtils.requestRaw(url, method, headers, body)
+      LogUtils.info(`[沙箱] 网络响应: ${respBody.substring(0, 150)}`)
       // 构造响应结构 { statusCode, headers, body }
       const respObj: Record<string, Object> = {}
       respObj['statusCode'] = 200
@@ -366,6 +373,7 @@ export class JSScriptSource extends BaseSource {
       const respJson = JSON.stringify(respObj)
       this.bridge.setNativeResult(this.handle, requestId, 'null', respJson)
     } catch (err) {
+      LogUtils.error(`[沙箱] 网络请求异常`, JSON.stringify(err))
       this.bridge.setNativeResult(this.handle, requestId, JSON.stringify(String(err)), 'null')
     }
   }
@@ -379,15 +387,22 @@ export class JSScriptSource extends BaseSource {
         clearInterval(timer)
         return
       }
-      const r = this.bridge.callGlobalFunction(this.handle, '__lx_takeResult__', JSON.stringify([requestId]))
-      if (r && r !== 'null' && r !== '') {
+      try {
+        const r = this.bridge.callGlobalFunction(this.handle, '__lx_takeResult__', JSON.stringify([requestId]))
+        if (r && r !== 'null' && r !== '') {
+          clearInterval(timer)
+          this.pendingResults.set(requestId, r)
+          this.flushWaiters(requestId)
+        } else if (count > 60) {
+          // 5 秒超时
+          clearInterval(timer)
+          this.pendingResults.set(requestId, JSON.stringify({ status: false, error: 'script timeout' }))
+          this.flushWaiters(requestId)
+        }
+      } catch (pollErr) {
+        LogUtils.error(`[沙箱] 轮询取结果异常 requestId=${requestId}`, JSON.stringify(pollErr))
         clearInterval(timer)
-        this.pendingResults.set(requestId, r)
-        this.flushWaiters(requestId)
-      } else if (count > 60) {
-        // 5 秒超时
-        clearInterval(timer)
-        this.pendingResults.set(requestId, JSON.stringify({ status: false, error: 'script timeout' }))
+        this.pendingResults.set(requestId, JSON.stringify({ status: false, error: 'poll exception' }))
         this.flushWaiters(requestId)
       }
     }, 80)
@@ -428,10 +443,19 @@ export class JSScriptSource extends BaseSource {
       callInfo[keys[i]] = info[keys[i]]
     }
     callInfo['source'] = String(this.info.type)
-    this.bridge.callGlobalFunction(this.handle, '__lx_call__', JSON.stringify([requestId, action, callInfo]))
+    LogUtils.info(`[沙箱] action=${action} requestId=${requestId} 开始`)
+    let callRet = ''
+    try {
+      callRet = this.bridge.callGlobalFunction(this.handle, '__lx_call__', JSON.stringify([requestId, action, callInfo]))
+    } catch (callErr) {
+      LogUtils.error(`[沙箱] __lx_call__ 调用异常`, JSON.stringify(callErr))
+      return '{"status":false,"error":"call exception"}'
+    }
+    LogUtils.info(`[沙箱] __lx_call__ 返回: ${callRet}`)
     await this.waitForResult(requestId)
     const result = this.pendingResults.get(requestId) ?? ''
     this.pendingResults.delete(requestId)
+    LogUtils.info(`[沙箱] action=${action} 结果: ${result.substring(0, 200)}`)
     return result
   }
 

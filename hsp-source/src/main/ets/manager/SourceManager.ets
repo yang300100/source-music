@@ -15,11 +15,20 @@ import {
 import { BaseSource, DemoSource } from '../api/SourceAPI'
 import { LocalFileSource } from '../sources/LocalFileSource'
 import { JSSourceAdapter } from '../sources/JSSourceAdapter'
+import { JSScriptSource } from '../sources/JSScriptSource'
 import { JSSandbox } from '../sandbox/JSSandbox'
 import { fileIo } from '@kit.CoreFileKit'
 import { util } from '@kit.ArkTS'
 
 const STORAGE_KEY_SOURCES = 'source_list'
+const STORAGE_KEY_SCRIPTS = 'source_scripts'
+
+/** 持久化的音源记录（元信息 + 开关 + 优先级） */
+interface SavedSource {
+  info: SourceInfo
+  enabled: boolean
+  priority: number
+}
 
 /**
  * 多音源管理器 — 统一管理所有音源的生命周期
@@ -41,10 +50,8 @@ export class SourceManager {
     return SourceManager.instance
   }
 
-  /** 初始化：加载已保存的音源 + 注册内置演示音源 */
+  /** 初始化：恢复已保存的 JS 音源 + 注册内置音源 */
   async init(): Promise<void> {
-    const saved = await StorageUtils.getObject<SourceInfo[]>(STORAGE_KEY_SOURCES, [])
-
     // 内置演示音源（最低优先级，保证始终有一个可用音源）
     const demo = new DemoSource()
     demo.priority = 999
@@ -55,7 +62,33 @@ export class SourceManager {
     localFile.priority = 50
     this.sources.push(localFile)
 
-    LogUtils.info('音源管理器初始化完成', `共 ${this.sources.length} 个音源`)
+    // 恢复已保存的 JS 音源（读取脚本内容 → 重新创建沙箱）
+    const saved = await StorageUtils.getObject<SavedSource[]>(STORAGE_KEY_SOURCES, [])
+    const scripts = await StorageUtils.getObject<Record<string, string>>(STORAGE_KEY_SCRIPTS, {})
+    let restoredCount = 0
+    for (const savedSource of saved) {
+      const info = savedSource.info
+      // 跳过内置音源（演示/本地文件）
+      if (!info || info.id === 'demo' || info.id === 'local_source') continue
+      const script = scripts[info.id]
+      if (!script) {
+        LogUtils.warn(`音源脚本缺失，跳过: ${info.name}`)
+        continue
+      }
+      try {
+        const source = await JSSandbox.createSource(script, info)
+        if (source) {
+          source.enabled = savedSource.enabled
+          source.priority = savedSource.priority
+          this.sources.push(source)
+          restoredCount++
+        }
+      } catch (err) {
+        LogUtils.error(`恢复音源失败: ${info.name}`, JSON.stringify(err))
+      }
+    }
+
+    LogUtils.info('音源管理器初始化完成', `共 ${this.sources.length} 个音源（恢复 ${restoredCount} 个 JS 音源）`)
   }
 
   /** 获取所有音源 */
@@ -198,6 +231,11 @@ export class SourceManager {
   async removeSource(id: string): Promise<boolean> {
     const index = this.sources.findIndex(s => s.info.id === id)
     if (index < 0) return false
+    // 销毁 JSVM 沙箱释放资源
+    const removed = this.sources[index]
+    if (removed instanceof JSScriptSource) {
+      removed.destroy()
+    }
     this.sources.splice(index, 1)
     await this.save()
     return true
@@ -273,9 +311,29 @@ export class SourceManager {
     return null
   }
 
-  /** 持久化音源列表 */
+  /** 持久化音源列表（元信息 + 开关 + 优先级 + JS 音源脚本内容） */
   private async save(): Promise<void> {
-    const infos = this.sources.map(s => s.info)
-    await StorageUtils.putObject(STORAGE_KEY_SOURCES, infos)
+    const savedList: SavedSource[] = []
+    for (const s of this.sources) {
+      const item: SavedSource = {
+        info: s.info,
+        enabled: s.enabled,
+        priority: s.priority
+      }
+      savedList.push(item)
+    }
+    await StorageUtils.putObject(STORAGE_KEY_SOURCES, savedList)
+
+    // 保存 JS 音源的脚本内容（用于重启后恢复）
+    const scripts: Record<string, string> = {}
+    for (const s of this.sources) {
+      if (!s.isNative && s instanceof JSScriptSource) {
+        const script = s.getScriptContent()
+        if (script) {
+          scripts[s.info.id] = script
+        }
+      }
+    }
+    await StorageUtils.putObject(STORAGE_KEY_SCRIPTS, scripts)
   }
 }
