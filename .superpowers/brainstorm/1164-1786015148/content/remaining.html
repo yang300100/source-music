@@ -1,0 +1,119 @@
+<h2>搜索、歌词与状态管理 — MVP 收官设计</h2>
+<p class="subtitle">三个核心能力合在一页，快速过完</p>
+
+<div class="section">
+  <h3>🔍 多音源聚合搜索</h3>
+  <div style="background:#2d2d3f; border-radius:12px; padding:20px; color:#cdd6f4; line-height:2; font-size:14px;">
+    <p>用户输入关键词 → <strong style="color:#f9e2af;">同时发给所有启用的音源</strong>（最多 5 个并发）→ 等所有结果回来 → <strong style="color:#a6e3a1;">去重合并</strong>（同歌名+同歌手=同一首）→ 按音源优先级排序展示</p>
+    <p style="color:#a6adc8; margin-top:8px;">每个搜索结果标记来源（比如「🐶 酷狗」「☁️ 网易」），用户可以<strong>切换音源</strong>获取不同音质，或者让 App 按优先级自动选。</p>
+  </div>
+
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">搜索流程</div>
+      <div class="mockup-body" style="font-size:13px; color:#a6adc8; line-height:1.8;">
+        <p>1️⃣ 输入关键词</p>
+        <p>2️⃣ 并发请求 5 个音源</p>
+        <p>3️⃣ 收集结果，统一格式</p>
+        <p>4️⃣ 按歌名+歌手去重</p>
+        <p>5️⃣ 合并同一首歌的不同音源</p>
+        <p>6️⃣ 按优先级排序展示</p>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">搜索历史 & 热搜</div>
+      <div class="mockup-body" style="font-size:13px; color:#a6adc8; line-height:1.8;">
+        <p>🕐 本地搜索历史（最多50条）</p>
+        <p>🔥 热搜推荐（从音源获取）</p>
+        <p>🗑 一键清除历史</p>
+        <p>🔗 支持粘贴链接直达歌单</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>🎤 歌词显示</h3>
+  <div style="background:#2d2d3f; border-radius:12px; padding:20px; color:#cdd6f4; line-height:2; font-size:14px;">
+    <p>播放器拿到歌曲 ID → 调用音源 <code>getLyric()</code> → 返回 <strong>LRC 格式歌词</strong> → 解析时间标签 → 根据播放进度<strong style="color:#89b4fa;">逐行高亮滚动</strong></p>
+    <p style="color:#a6adc8; margin-top:8px;">支持 <strong>原文 + 译文对照</strong>（上下两行，原文白色译文灰色），支持 <strong>手动滚动查看</strong>，点击某一行跳转到对应时间。</p>
+  </div>
+
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">歌词能力</div>
+      <div class="mockup-body" style="font-size:13px; color:#a6adc8; line-height:1.8;">
+        <p>✅ LRC 逐行滚动</p>
+        <p>✅ 当前行高亮 + 颜色过渡</p>
+        <p>✅ 译文对照（双语歌词）</p>
+        <p>✅ 点击跳转播放位置</p>
+        <p>✅ 手动拖动预览</p>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">兜底策略</div>
+      <div class="mockup-body" style="font-size:13px; color:#a6adc8; line-height:1.8;">
+        <p>⚠️ 无歌词 → 显示「纯音乐，请欣赏」</p>
+        <p>⚠️ 无时间标签 → 按段落展示</p>
+        <p>⚠️ 音源获取失败 → 换源重试</p>
+        <p>⚠️ 网络超时 → 提示用户手动切换</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>🗄 状态管理（ArkUI 原生方案）</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:14px;">
+    <tr style="background:#2d2d3f;">
+      <th style="padding:10px 14px; color:#89b4fa; text-align:left;">状态类型</th>
+      <th style="padding:10px 14px; color:#89b4fa; text-align:left;">用什么管</th>
+      <th style="padding:10px 14px; color:#89b4fa; text-align:left;">放什么数据</th>
+      <th style="padding:10px 14px; color:#89b4fa; text-align:left;">生命周期</th>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#a6e3a1;">组件内状态</td>
+      <td style="padding:10px 14px; color:#a6adc8;">@State / @Link</td>
+      <td style="padding:10px 14px; color:#a6adc8;">搜索框文本、开关状态、弹窗显隐</td>
+      <td style="padding:10px 14px; color:#6c7086;">跟随组件</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#a6e3a1;">页面间共享</td>
+      <td style="padding:10px 14px; color:#a6adc8;">@Provide / @Consume</td>
+      <td style="padding:10px 14px; color:#a6adc8;">当前歌单、搜索结果、歌词数据</td>
+      <td style="padding:10px 14px; color:#6c7086;">跟随页面导航栈</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#a6e3a1;">全局持久状态</td>
+      <td style="padding:10px 14px; color:#a6adc8;">AppStorage / PersistentStorage</td>
+      <td style="padding:10px 14px; color:#a6adc8;">播放队列、音源列表、主题偏好、设置</td>
+      <td style="padding:10px 14px; color:#6c7086;">App 整个生命周期</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#a6e3a1;">播放器状态</td>
+      <td style="padding:10px 14px; color:#a6adc8;">@Observed + @ObjectLink</td>
+      <td style="padding:10px 14px; color:#a6adc8;">播放状态、当前歌曲、进度、播放模式</td>
+      <td style="padding:10px 14px; color:#6c7086;">跨页面全局</td>
+    </tr>
+  </table>
+
+  <div class="pros-cons" style="margin-top:16px;">
+    <div class="pros">
+      <h4>全原生方案的优势</h4>
+      <ul>
+        <li>零第三方依赖，包体积更小</li>
+        <li>与 ArkUI 渲染管线深度集成，更新高效</li>
+        <li>类型安全，ArkTS 编译期检查</li>
+        <li>PersistentStorage 自动落盘，无需手写序列化</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>注意点</h4>
+      <ul>
+        <li>深层组件树 @Provide/Consume 链需规划好</li>
+        <li>复杂全局状态建议收敛到一个 AppState 类</li>
+        <li>PersistentStorage 仅支持简单类型</li>
+      </ul>
+    </div>
+  </div>
+</div>

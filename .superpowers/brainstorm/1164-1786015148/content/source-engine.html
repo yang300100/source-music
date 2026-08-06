@@ -1,0 +1,80 @@
+<h2>音源引擎设计 — 壳与音源分离的核心</h2>
+<p class="subtitle">两套接口并行：ArkTS 原生音源 + JS 脚本兼容层，两者走同一套标准数据格式</p>
+
+<div class="section">
+  <h3>🎯 给哥哥看的效果：怎么用？</h3>
+  <div style="background:#2d2d3f; border-radius:12px; padding:20px; color:#cdd6f4; line-height:2; font-size:14px;">
+    <p>用户打开 App → 进入<strong style="color:#f9e2af;">音源管理</strong> → 点「导入音源」：</p>
+    <p style="margin-left:20px;">📄 <strong>选本地 JS 文件</strong>（从原版 lx-music 社区下载的 .js 音源脚本）→ 自动跑在沙箱里 → 搜歌接口立即可用</p>
+    <p style="margin-left:20px;">🔗 <strong>粘贴在线链接</strong>（别人分享的音源 URL）→ 下载 → 同样的沙箱执行</p>
+    <p style="margin-left:20px;">📦 <strong>安装 .hap 音源插件</strong>（未来有开发者用 ArkTS 写的原生音源）→ 性能更好、能调鸿蒙原生能力</p>
+    <p>每个音源可以<strong style="color:#a6e3a1;">单独开关</strong>、<strong style="color:#cba6f7;">拖拽排序优先级</strong>。搜歌时多个音源一起搜，自动去重合并。</p>
+  </div>
+</div>
+
+<div class="section">
+  <h3>⚖️ 两套方案对比</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:14px;">
+    <tr style="background:#2d2d3f;">
+      <th style="padding:12px; width:20%;"></th>
+      <th style="padding:12px; color:#a6e3a1; width:40%;">JS 脚本兼容模式</th>
+      <th style="padding:12px; color:#89b4fa; width:40%;">ArkTS 原生音源</th>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#cdd6f4; font-weight:bold;">生态</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 直接复用社区现成音源</td>
+      <td style="padding:10px 14px; color:#a6adc8;">❌ 需从零建立生态</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#cdd6f4; font-weight:bold;">性能</td>
+      <td style="padding:10px 14px; color:#a6adc8;">⚠️ 沙箱有额外开销但可接受</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 原生性能，无中间层</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#cdd6f4; font-weight:bold;">安全性</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 沙箱隔离，限制网络/文件访问</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 应用沙箱 + 权限控制</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#cdd6f4; font-weight:bold;">鸿蒙特性</td>
+      <td style="padding:10px 14px; color:#a6adc8;">❌ 无法调用鸿蒙原生能力</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 可调用全部 ArkUI/系统能力</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#cdd6f4; font-weight:bold;">维护</td>
+      <td style="padding:10px 14px; color:#a6adc8;">⚠️ 依赖 QuickJS 编译和适配</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 纯 ArkTS，标准工具链</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#cdd6f4; font-weight:bold;">适合场景</td>
+      <td style="padding:10px 14px; color:#a6adc8;">MVP 快速上线、社区音源迁移</td>
+      <td style="padding:10px 14px; color:#a6adc8;">深度定制音源、商业音源合作</td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>🛡️ 安全保障</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>JS 沙箱会限制这些</h4>
+      <ul>
+        <li>只能访问音源接口定义的 API</li>
+        <li>网络请求限速 + 只允许白名单域名</li>
+        <li>无法访问文件系统（除了自己的配置）</li>
+        <li>无法调用系统 API 或设备信息</li>
+        <li>超时自动终止（30秒）</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>这些做不到</h4>
+      <ul>
+        <li>不能读写用户文件</li>
+        <li>不能获取设备定位/通讯录等隐私</li>
+        <li>不能在后台偷偷运行</li>
+        <li>不能绕过 App 的网络代理设置</li>
+        <li>沙箱崩溃不影响主 App</li>
+      </ul>
+    </div>
+  </div>
+</div>

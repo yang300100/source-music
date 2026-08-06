@@ -1,0 +1,70 @@
+<h2>整体架构设计 — HSP 特性模块</h2>
+<p class="subtitle">HarmonyOS 模块化架构，壳与音源分离，独立编译按需打包</p>
+
+<div class="section">
+  <h3>模块结构图</h3>
+  <div style="background:#1e1e2e; padding:24px; border-radius:12px; font-family:monospace; font-size:13px; line-height:1.8;">
+    <div style="display:flex; gap:16px;">
+      <div style="flex:1; background:#2d2d3f; border-radius:8px; padding:16px; border-left:4px solid #89b4fa;">
+        <div style="color:#89b4fa; font-weight:bold; font-size:15px; margin-bottom:10px;">📦 entry（主模块 - 壳）</div>
+        <div style="color:#a6adc8;">├── EntryAbility</div>
+        <div style="color:#a6adc8;">├── AppState（全局状态）</div>
+        <div style="color:#a6adc8;">├── SideBar 导航框架</div>
+        <div style="color:#a6adc8;">├── 路由分发</div>
+        <div style="color:#a6adc8;">└── 主题/多设备适配</div>
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:center; padding:12px 0; color:#585b70;">▼ 依赖（静态 import / dynamic import） ▼</div>
+
+    <div style="display:flex; gap:16px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:180px; background:#2d2d3f; border-radius:8px; padding:14px; border-left:4px solid #a6e3a1;">
+        <div style="color:#a6e3a1; font-weight:bold; font-size:14px;">🎵 hsp-player</div>
+        <div style="color:#a6adc8; font-size:12px;">AVPlayer 封装<br>播放队列<br>播放状态机<br>通知栏/后台</div>
+      </div>
+      <div style="flex:1; min-width:180px; background:#2d2d3f; border-radius:8px; padding:14px; border-left:4px solid #f9e2af;">
+        <div style="color:#f9e2af; font-weight:bold; font-size:14px;">🔌 hsp-source</div>
+        <div style="color:#a6adc8; font-size:12px;">音源接口定义<br>JS 引擎沙箱<br>QuickJS 兼容层<br>多音源管理</div>
+      </div>
+      <div style="flex:1; min-width:180px; background:#2d2d3f; border-radius:8px; padding:14px; border-left:4px solid #cba6f7;">
+        <div style="color:#cba6f7; font-weight:bold; font-size:14px;">🔍 hsp-search</div>
+        <div style="color:#a6adc8; font-size:12px;">统一搜索入口<br>聚合结果<br>搜索历史<br>热搜推荐</div>
+      </div>
+      <div style="flex:1; min-width:180px; background:#2d2d3f; border-radius:8px; padding:14px; border-left:4px solid #f38ba8;">
+        <div style="color:#f38ba8; font-weight:bold; font-size:14px;">📋 hsp-playlist</div>
+        <div style="color:#a6adc8; font-size:12px;">歌单 CRUD<br>导入/导出 .lxmc<br>收藏管理<br>播放列表</div>
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:center; padding:12px 0; color:#585b70;">▼ 底层依赖 ▼</div>
+
+    <div style="display:flex; gap:16px;">
+      <div style="flex:1; background:#1e1e2e; border:1px dashed #45475a; border-radius:8px; padding:12px;">
+        <div style="color:#6c7086; font-weight:bold; font-size:13px;">🛠 common（公共基础）</div>
+        <div style="color:#585b70; font-size:11px;">网络请求 / 本地存储 / 日志 / 工具 / 常量</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>关键设计决策</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:14px;">
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#89b4fa; font-weight:bold; width:30%;">壳与音源分离</td>
+      <td style="padding:10px 14px; color:#a6adc8;">entry 只是壳，不含任何内置音源。所有音乐数据通过 hsp-source 用户导入的脚本获取</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#a6e3a1; font-weight:bold;">模块独立编译</td>
+      <td style="padding:10px 14px; color:#a6adc8;">每个 HSP 可独立编译测试，修改播放器不碰音源模块，降低耦合</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#f9e2af; font-weight:bold;">按需打包</td>
+      <td style="padding:10px 14px; color:#a6adc8;">不同设备形态可选择性包含不同 HSP，如手表版可省略 hsp-search</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#cba6f7; font-weight:bold;">渐进扩展</td>
+      <td style="padding:10px 14px; color:#a6adc8;">第三阶段加 hsp-distribute（分布式流转）、hsp-metaservice（元服务），不动已有模块</td>
+    </tr>
+  </table>
+</div>

@@ -1,0 +1,82 @@
+<h2>播放器引擎 — 音乐播放的完整链路</h2>
+<p class="subtitle">基于鸿蒙 AVPlayer，从用户点播放到声音出来的全流程</p>
+
+<div class="section">
+  <h3>🎯 用户体验流程</h3>
+  <div style="background:#2d2d3f; border-radius:12px; padding:20px; color:#cdd6f4; line-height:2.2; font-size:14px;">
+    <p>用户在搜索结果里 <strong style="color:#89b4fa;">点某首歌</strong></p>
+    <p style="margin-left:24px; color:#a6adc8;">→ 播放器判断：这首歌在当前音源优先级最高的那个源里</p>
+    <p style="margin-left:24px; color:#a6adc8;">→ 调用音源的 getMusicInfo 获取真实播放 URL</p>
+    <p style="margin-left:24px; color:#a6adc8;">→ URL 交给 AVPlayer，开始缓冲 → 出声</p>
+    <p style="margin-left:24px; color:#a6adc8;">→ 同时获取歌词 → 显示在播放页上</p>
+    <p style="margin-left:24px; color:#a6adc8;">→ 如果这个源的 URL 失效了 → 自动换下一个源重试</p>
+    <p style="margin-left:24px; color:#a6adc8;">→ 听完这首 → 如果是歌单模式，自动切下一首</p>
+  </div>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">播放器状态机 — 这首歌在整个生命周期中的状态</div>
+  <div class="mockup-body">
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center; padding:20px 0; font-family:monospace; font-size:13px;">
+      <span style="background:#45475a; color:#cdd6f4; padding:10px 16px; border-radius:8px;">⏹ 空闲</span>
+      <span style="color:#585b70;">→ 点播放 →</span>
+      <span style="background:#f9e2af; color:#1e1e2e; padding:10px 16px; border-radius:8px;">🔍 获取URL</span>
+      <span style="color:#585b70;">→ 拿到 →</span>
+      <span style="background:#89b4fa; color:#1e1e2e; padding:10px 16px; border-radius:8px;">⚡ 缓冲中</span>
+      <span style="color:#585b70;">→ 就绪 →</span>
+      <span style="background:#a6e3a1; color:#1e1e2e; padding:10px 16px; border-radius:8px;">▶ 播放中</span>
+      <span style="color:#585b70;">→ 结束/切歌 →</span>
+      <span style="background:#45475a; color:#cdd6f4; padding:10px 16px; border-radius:8px;">⏹ 空闲</span>
+    </div>
+    <div style="text-align:center; margin-top:12px;">
+      <span style="background:#f38ba8; color:#1e1e2e; padding:8px 14px; border-radius:6px; font-size:13px;">⏸ 暂停</span>
+      <span style="color:#a6adc8; margin:0 10px;">↔ 随时切换</span>
+      <span style="background:#a6e3a1; color:#1e1e2e; padding:8px 14px; border-radius:6px; font-size:13px;">▶ 播放中</span>
+      <span style="color:#a6adc8; margin:0 10px;">|</span>
+      <span style="background:#f38ba8; color:#1e1e2e; padding:8px 14px; border-radius:6px; font-size:13px;">❌ URL失效</span>
+      <span style="color:#a6adc8; margin:0 10px;">→ 自动换源 →</span>
+      <span style="background:#f9e2af; color:#1e1e2e; padding:8px 14px; border-radius:6px; font-size:13px;">🔍 获取URL</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>⚖️ 播放能力对比</h3>
+  <table style="width:100%; border-collapse:collapse; font-size:14px;">
+    <tr style="background:#2d2d3f;">
+      <th style="padding:12px; color:#cdd6f4;">能力</th>
+      <th style="padding:12px; color:#a6e3a1;">AVPlayer（我们选的）</th>
+      <th style="padding:12px; color:#6c7086;">AudioRenderer（没选）</th>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#cdd6f4;">网络流媒体</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 传 URL 直接播</td>
+      <td style="padding:10px 14px; color:#585b70;">❌ 需自己下载解码</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#cdd6f4;">格式支持</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ MP3/FLAC/AAC/OGG/WAV</td>
+      <td style="padding:10px 14px; color:#585b70;">⚠️ 需自己编解码</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#cdd6f4;">后台播放</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 系统级后台 + 通知栏控制</td>
+      <td style="padding:10px 14px; color:#585b70;">⚠️ 需自行管理后台任务</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#cdd6f4;">开发难度</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 几行代码出声音</td>
+      <td style="padding:10px 14px; color:#585b70;">❌ 需深入音频底层</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 14px; color:#cdd6f4;">均衡器/音效</td>
+      <td style="padding:10px 14px; color:#f9e2af;">⚠️ 有限支持</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 完全自由控制</td>
+    </tr>
+    <tr style="background:#2d2d3f;">
+      <td style="padding:10px 14px; color:#cdd6f4;">音频可视化</td>
+      <td style="padding:10px 14px; color:#f9e2af;">⚠️ 间接实现</td>
+      <td style="padding:10px 14px; color:#a6adc8;">✅ 直接拿到波形数据</td>
+    </tr>
+  </table>
+</div>
