@@ -154,55 +154,9 @@ struct VmInstance {
     bool alive = false;
 };
 
-/** 挂起的 JS 回调（request 异步桥接用） */
-struct PendingCall {
-    JSVM_Ref callbackRef = nullptr;
-    std::string requestId;
-};
-
 static std::map<int, VmInstance> g_vms;
-static std::map<int, PendingCall> g_pendingCalls;
 static int g_nextHandle = 1;
 static std::mutex g_mutex;
-
-// ArkTS 侧回调（request 事件通知），用线程安全函数异步投递
-// 重要：绝不能在 V8 回调栈内直接 napi_call_function 调 ArkTS（跨 VM 嵌套调用会崩溃），
-// 必须通过 TSFN 排队到 ArkTS 事件循环执行
-static napi_threadsafe_function g_requestTsfn = nullptr;
-static napi_env g_napiEnv = nullptr;
-
-/** TSFN 投递的数据：一次网络请求 */
-struct TsfnRequestData {
-    std::string requestId;
-    std::string url;
-    std::string optionsJson;
-};
-
-/** TSFN 回调：在 ArkTS 主线程执行，调用 ArkTS 侧 onRequest 函数 */
-static void CallJsOnRequest(napi_env env, napi_value js_cb, void *context, void *data) {
-    auto *reqData = static_cast<TsfnRequestData *>(data);
-    if (reqData == nullptr) return;
-    napi_value argv[3];
-    napi_create_string_utf8(env, reqData->requestId.c_str(), reqData->requestId.length(), &argv[0]);
-    napi_create_string_utf8(env, reqData->url.c_str(), reqData->url.length(), &argv[1]);
-    napi_create_string_utf8(env, reqData->optionsJson.c_str(), reqData->optionsJson.length(), &argv[2]);
-    napi_value global = nullptr;
-    napi_get_global(env, &global);
-    napi_value result = nullptr;
-    napi_call_function(env, global, js_cb, 3, argv, &result);
-    delete reqData;
-}
-
-/** 根据 env 查找 VM 实例（返回 handle，0 表示未找到） */
-static int FindHandleByEnv(JSVM_Env env) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    for (auto &it : g_vms) {
-        if (it.second.env == env && it.second.alive) {
-            return it.first;
-        }
-    }
-    return 0;
-}
 
 /** 获取 VM 实例（加锁） */
 static VmInstance *GetVmInstance(int handle) {
@@ -214,119 +168,12 @@ static VmInstance *GetVmInstance(int handle) {
     return nullptr;
 }
 
-// ============ JSVM 原生函数（注入脚本） ============
-
-/** JS 侧调用 __lx_request__(requestId, url, optionsJson, callback) */
-static JSVM_Value JsRequestCallback(JSVM_Env env, JSVM_CallbackInfo info) {
-    // 重要：此回调由 V8 在脚本执行栈内调用，V8 已自动建立 HandleScope，
-    // 绝不能在此 OpenVMScope/OpenEnvScope（嵌套 Isolate::Scope 会导致 V8 CHECK 崩溃）！
-    int handle = FindHandleByEnv(env);
-    if (handle <= 0) return nullptr;
-
-    size_t argc = 4;
-    JSVM_Value argv[4] = { nullptr };
-    OH_JSVM_GetCbInfo(env, info, &argc, argv, nullptr, nullptr);
-    if (argc >= 4) {
-        std::string requestId = ValueToJson(env, argv[0]);
-        if (requestId.size() >= 2 && requestId.front() == '"') {
-            requestId = requestId.substr(1, requestId.size() - 2);
-        }
-        std::string url = ValueToJson(env, argv[1]);
-        if (url.size() >= 2 && url.front() == '"') {
-            url = url.substr(1, url.size() - 2);
-        }
-        std::string optionsJson = ValueToJson(env, argv[2]);
-
-        JSVM_Value cbFn = argv[3];
-        if (IsFunction(env, cbFn)) {
-            JSVM_Ref cbRef = nullptr;
-            if (OH_JSVM_CreateReference(env, cbFn, 1, &cbRef) == JSVM_OK) {
-                {
-                    std::lock_guard<std::mutex> lock(g_mutex);
-                    PendingCall pc;
-                    pc.callbackRef = cbRef;
-                    pc.requestId = requestId;
-                    g_pendingCalls[handle] = pc;
-                }
-                // 异步投递到 ArkTS 事件循环（TSFN），避免 V8 栈内跨 VM 调用
-                if (g_requestTsfn != nullptr) {
-                    auto *reqData = new TsfnRequestData();
-                    reqData->requestId = requestId;
-                    reqData->url = url;
-                    reqData->optionsJson = optionsJson;
-                    napi_status tsStatus = napi_call_threadsafe_function(
-                        g_requestTsfn, reqData, napi_tsfn_blocking);
-                    if (tsStatus != napi_ok) {
-                        delete reqData;
-                    }
-                }
-            }
-        }
-    }
-
-    return nullptr; // undefined
-}
-
-/** JS 侧调用 __lx_log__(level, message) */
-static JSVM_Value JsLogCallback(JSVM_Env env, JSVM_CallbackInfo info) {
-    // 与 JsRequestCallback 相同：V8 回调栈内，不 Open 任何 scope
-    size_t argc = 2;
-    JSVM_Value argv[2] = { nullptr };
-    OH_JSVM_GetCbInfo(env, info, &argc, argv, nullptr, nullptr);
-    if (argc >= 2) {
-        std::string level = ValueToJson(env, argv[0]);
-        std::string msg = ValueToJson(env, argv[1]);
-        (void)level;
-        (void)msg;
-    }
-
-    return nullptr;
-}
-
-/** 初始化 JSVM 原生函数并挂到全局对象（必须在 VmScopes 内调用） */
-static void InitNativeFunctions(JSVM_Env env) {
-    JSVM_Value global = nullptr;
-    if (OH_JSVM_GetGlobal(env, &global) != JSVM_OK) return;
-
-    JSVM_CallbackStruct reqCb = { JsRequestCallback, nullptr };
-    JSVM_Value reqFn = nullptr;
-    if (OH_JSVM_CreateFunction(env, "__lx_request__", strlen("__lx_request__"), &reqCb, &reqFn) == JSVM_OK) {
-        OH_JSVM_SetNamedProperty(env, global, "__lx_request__", reqFn);
-    }
-    JSVM_CallbackStruct logCb = { JsLogCallback, nullptr };
-    JSVM_Value logFn = nullptr;
-    if (OH_JSVM_CreateFunction(env, "__lx_log__", strlen("__lx_log__"), &logCb, &logFn) == JSVM_OK) {
-        OH_JSVM_SetNamedProperty(env, global, "__lx_log__", logFn);
-    }
-}
-
 // ============ NAPI 导出接口 ============
 
 extern "C" {
 
-/** 创建 VM：createVM(onRequestCallback) → handle */
+/** 创建 VM：createVM() → handle */
 napi_value NapiCreateVM(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1] = { nullptr };
-    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
-
-    if (argc >= 1 && argv[0] != nullptr) {
-        // 创建线程安全函数（异步投递请求到 ArkTS 事件循环）
-        if (g_requestTsfn != nullptr) {
-            napi_release_threadsafe_function(g_requestTsfn, napi_tsfn_release);
-            g_requestTsfn = nullptr;
-        }
-        napi_value workName = nullptr;
-        napi_create_string_utf8(env, "jsvmRequest", NAPI_AUTO_LENGTH, &workName);
-        napi_status tsStatus = napi_create_threadsafe_function(
-            env, argv[0], nullptr, workName, 0, 1, nullptr, nullptr, nullptr,
-            CallJsOnRequest, &g_requestTsfn);
-        if (tsStatus != napi_ok) {
-            g_requestTsfn = nullptr;
-        }
-        g_napiEnv = env;
-    }
-
     // OH_JSVM_Init 只允许调用一次
     static bool s_initialized = false;
     if (!s_initialized) {
@@ -358,15 +205,6 @@ napi_value NapiCreateVM(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    // 注入原生函数（三层作用域内）
-    {
-        VmScopes scopes;
-        if (scopes.open(vm, jsEnv)) {
-            InitNativeFunctions(jsEnv);
-            scopes.close();
-        }
-    }
-
     int handle = 0;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -396,11 +234,6 @@ napi_value NapiDestroyVM(napi_env env, napi_callback_info info) {
         std::lock_guard<std::mutex> lock(g_mutex);
         auto it = g_vms.find(handle);
         if (it != g_vms.end()) {
-            auto pcIt = g_pendingCalls.find(handle);
-            if (pcIt != g_pendingCalls.end()) {
-                OH_JSVM_DeleteReference(it->second.env, pcIt->second.callbackRef);
-                g_pendingCalls.erase(pcIt);
-            }
             OH_JSVM_DestroyEnv(it->second.env);
             OH_JSVM_DestroyVM(it->second.vm);
             g_vms.erase(it);
@@ -594,48 +427,40 @@ napi_value NapiSetNativeResult(napi_env env, napi_callback_info info) {
     }
 
     VmInstance *inst = GetVmInstance(handle);
-    PendingCall *pc = nullptr;
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        auto pcIt = g_pendingCalls.find(handle);
-        if (pcIt != g_pendingCalls.end() && pcIt->second.requestId == requestId) {
-            pc = &pcIt->second;
-        }
-    }
-    if (inst == nullptr || pc == nullptr || pc->callbackRef == nullptr) return nullptr;
+    if (inst == nullptr) return nullptr;
 
     {
         VmScopes scopes;
         if (scopes.open(inst->vm, inst->env)) {
-            JSVM_Value cbFn = nullptr;
-            if (OH_JSVM_GetReferenceValue(inst->env, pc->callbackRef, &cbFn) == JSVM_OK && cbFn != nullptr) {
-                // 参数构造：JsonToValue 失败时必须用 null 兜底，禁止传 nullptr 给 CallFunction（会段错误）
-                JSVM_Value argvCall[2];
+            // 调用脚本侧 __lx_resolveRequest__(requestId, errorJson, responseJson)
+            JSVM_Value fn = GetGlobalProperty(inst->env, "__lx_resolveRequest__");
+            if (IsFunction(inst->env, fn)) {
+                JSVM_Value argvCall[3];
+                // 参数 0：requestId 字符串
+                if (OH_JSVM_CreateStringUtf8(inst->env, requestId.c_str(), requestId.length(), &argvCall[0]) != JSVM_OK) {
+                    scopes.close();
+                    return nullptr;
+                }
+                // 参数 1/2：errorJson / responseJson（失败兜底为 null，禁止传 nullptr）
                 JSVM_Value errVal = (errorJson == "null" || errorJson.empty())
                     ? nullptr : JsonToValue(inst->env, errorJson);
                 if (errVal == nullptr) {
                     OH_JSVM_GetNull(inst->env, &errVal);
                 }
-                argvCall[0] = errVal;
+                argvCall[1] = errVal;
                 JSVM_Value respVal = responseJson.empty()
                     ? nullptr : JsonToValue(inst->env, responseJson);
                 if (respVal == nullptr) {
                     OH_JSVM_GetNull(inst->env, &respVal);
                 }
-                argvCall[1] = respVal;
+                argvCall[2] = respVal;
                 JSVM_Value global = nullptr;
                 OH_JSVM_GetGlobal(inst->env, &global);
                 JSVM_Value result = nullptr;
-                OH_JSVM_CallFunction(inst->env, global, cbFn, 2, argvCall, &result);
+                OH_JSVM_CallFunction(inst->env, global, fn, 3, argvCall, &result);
             }
-            OH_JSVM_DeleteReference(inst->env, pc->callbackRef);
             scopes.close();
         }
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_pendingCalls.erase(handle);
     }
     return nullptr;
 }

@@ -17,7 +17,7 @@ import { BaseSource } from '../api/SourceAPI'
 import jsvmBridgeNative from 'libjsvm_bridge.so'
 
 interface JsvmBridgeApi {
-  createVM(onRequest: (requestId: string, url: string, optionsJson: string) => void): number
+  createVM(): number
   destroyVM(handle: number): void
   evalScript(handle: number, script: string): string
   callGlobalFunction(handle: number, fnName: string, argsJson: string): string
@@ -160,6 +160,10 @@ const PRELOAD_SCRIPT: string = `
     }
   };
 
+  // ---- 请求队列（脚本侧不调原生，ArkTS 主动来取）----
+  var pendingRequests = [];      // [{requestId, url, options}]
+  var pendingCallbacks = {};    // requestId → callback
+
   // ---- lx 全局对象 ----
   var lx = {
     EVENT_NAMES: EVENT_NAMES,
@@ -167,9 +171,11 @@ const PRELOAD_SCRIPT: string = `
       var cb = typeof options === 'function' ? options : callback;
       var opts = typeof options === 'object' && options ? options : {};
       var requestId = 'req_' + (++requestSeq) + '_' + Date.now();
-      __lx_request__(requestId, url, JSON.stringify(opts), function(err, resp) {
-        if (cb) cb(err, resp, resp ? resp.body : null);
-      });
+      // 只入队，不调用原生（避免脚本执行栈内触发 V8 原生回调崩溃）
+      pendingRequests.push({ requestId: requestId, url: url, options: opts });
+      if (typeof cb === 'function') {
+        pendingCallbacks[requestId] = cb;
+      }
       return function() {};
     },
     send: function(eventName, data) {
@@ -203,7 +209,6 @@ const PRELOAD_SCRIPT: string = `
   globalThis.__lx_call__ = function(requestId, action, info) {
     if (!events.request) {
       resultStore[requestId] = { status: false, error: 'Request event is not defined' };
-      __lx_request__(requestId, '', '{}', function() {});
       return;
     }
     var reqInfo = info || {};
@@ -213,10 +218,8 @@ const PRELOAD_SCRIPT: string = `
       info: reqInfo
     })).then(function(result) {
       resultStore[requestId] = { status: true, result: result };
-      __lx_request__(requestId, '', '{}', function() {});
     }).catch(function(err) {
       resultStore[requestId] = { status: false, error: String((err && err.message) || err) };
-      __lx_request__(requestId, '', '{}', function() {});
     });
   };
   globalThis.__lx_takeResult__ = function(requestId) {
@@ -224,6 +227,28 @@ const PRELOAD_SCRIPT: string = `
     var r = resultStore[requestId];
     delete resultStore[requestId];
     return r;
+  };
+  // 取走待发送的请求队列（ArkTS 轮询调用）
+  globalThis.__lx_takeRequests__ = function() {
+    if (pendingRequests.length === 0) return [];
+    var list = pendingRequests;
+    pendingRequests = [];
+    return list;
+  };
+  // ArkTS 回传网络结果，恢复 JS 回调（由 native 在干净栈上调用）
+  globalThis.__lx_resolveRequest__ = function(requestId, errorJson, responseJson) {
+    var cb = pendingCallbacks[requestId];
+    delete pendingCallbacks[requestId];
+    if (typeof cb !== 'function') return;
+    var err = null;
+    var resp = null;
+    try {
+      if (errorJson && errorJson !== 'null') err = JSON.parse(errorJson);
+      if (responseJson && responseJson !== 'null') resp = JSON.parse(responseJson);
+    } catch (e) {
+      err = e;
+    }
+    cb(err, resp, resp ? resp.body : null);
   };
   globalThis.setTimeout = globalThis.setTimeout || function() { return 0; };
   globalThis.clearTimeout = globalThis.clearTimeout || function() {};
@@ -270,11 +295,9 @@ export class JSScriptSource extends BaseSource {
     }
     LogUtils.info('JSVM 桥接模块加载成功')
 
-    // 2. 创建 VM
+    // 2. 创建 VM（无需回调：脚本请求通过 ArkTS 主动轮询队列获取）
     try {
-      this.handle = this.bridge.createVM((requestId: string, url: string, optionsJson: string) => {
-        this.handleNativeEvent(requestId, url, optionsJson)
-      })
+      this.handle = this.bridge.createVM()
     } catch (vmErr) {
       LogUtils.error('JSVM VM 创建异常', JSON.stringify(vmErr))
       return false
@@ -336,22 +359,11 @@ export class JSScriptSource extends BaseSource {
     return this.scriptContent
   }
 
-  // ===== 原生事件处理（JS 侧 request/结果通知） =====
-
-  private handleNativeEvent(requestId: string, url: string, optionsJson: string): void {
-    if (url === '') {
-      // 结果就绪通知 → 轮询拉取脚本计算结果
-      this.pollResult(requestId)
-    } else {
-      // 真实网络请求 → 通过 ArkTS 网络层发送
-      this.doNetworkRequest(requestId, url, optionsJson)
-    }
-  }
+  // ===== 请求处理（ArkTS 主动轮询，脚本侧不回调原生） =====
 
   /** 发送网络请求并回传结果给 JS */
   private async doNetworkRequest(requestId: string, url: string, optionsJson: string): Promise<void> {
     if (!this.bridge) return
-    LogUtils.info(`[沙箱] 网络请求: ${url.substring(0, 120)}`)
     try {
       let opts: Record<string, Object> = {}
       try {
@@ -363,7 +375,6 @@ export class JSScriptSource extends BaseSource {
       const headers = (opts['headers'] as Record<string, string>) ?? {}
       const body = (opts['body'] as string) ?? ''
       const respBody = await NetUtils.requestRaw(url, method, headers, body)
-      LogUtils.info(`[沙箱] 网络响应: ${respBody.substring(0, 150)}`)
       // 构造响应结构 { statusCode, headers, body }
       const respObj: Record<string, Object> = {}
       respObj['statusCode'] = 200
@@ -373,66 +384,11 @@ export class JSScriptSource extends BaseSource {
       const respJson = JSON.stringify(respObj)
       this.bridge.setNativeResult(this.handle, requestId, 'null', respJson)
     } catch (err) {
-      LogUtils.error(`[沙箱] 网络请求异常`, JSON.stringify(err))
       this.bridge.setNativeResult(this.handle, requestId, JSON.stringify(String(err)), 'null')
     }
   }
 
-  /** 轮询脚本计算结果 */
-  private pollResult(requestId: string): void {
-    let count = 0
-    const timer = setInterval(() => {
-      count++
-      if (!this.bridge) {
-        clearInterval(timer)
-        return
-      }
-      try {
-        const r = this.bridge.callGlobalFunction(this.handle, '__lx_takeResult__', JSON.stringify([requestId]))
-        if (r && r !== 'null' && r !== '') {
-          clearInterval(timer)
-          this.pendingResults.set(requestId, r)
-          this.flushWaiters(requestId)
-        } else if (count > 60) {
-          // 5 秒超时
-          clearInterval(timer)
-          this.pendingResults.set(requestId, JSON.stringify({ status: false, error: 'script timeout' }))
-          this.flushWaiters(requestId)
-        }
-      } catch (pollErr) {
-        LogUtils.error(`[沙箱] 轮询取结果异常 requestId=${requestId}`, JSON.stringify(pollErr))
-        clearInterval(timer)
-        this.pendingResults.set(requestId, JSON.stringify({ status: false, error: 'poll exception' }))
-        this.flushWaiters(requestId)
-      }
-    }, 80)
-  }
-
-  // ===== 调用脚本 action =====
-
-  private pendingResults: Map<string, string> = new Map()
-  private waiters: Map<string, Array<() => void>> = new Map()
-
-  private flushWaiters(requestId: string): void {
-    const list = this.waiters.get(requestId)
-    if (list) {
-      this.waiters.delete(requestId)
-      for (const resolve of list) resolve()
-    }
-  }
-
-  private waitForResult(requestId: string): Promise<void> {
-    return new Promise((resolve) => {
-      const list = this.waiters.get(requestId)
-      if (list) {
-        list.push(resolve)
-      } else {
-        this.waiters.set(requestId, [resolve])
-      }
-    })
-  }
-
-  /** 触发脚本 action 并等待结果 */
+  /** 触发脚本 action 并等待结果（内含请求处理循环） */
   private async callAction(action: string, info: Record<string, Object>): Promise<string> {
     if (!this.bridge || !this.isReady) return '{"status":false,"error":"sandbox not ready"}'
     const requestId = `call_${Date.now()}_${Math.floor(Math.random() * 100000)}`
@@ -444,6 +400,8 @@ export class JSScriptSource extends BaseSource {
     }
     callInfo['source'] = String(this.info.type)
     LogUtils.info(`[沙箱] action=${action} requestId=${requestId} 开始`)
+
+    // 启动脚本 handler
     let callRet = ''
     try {
       callRet = this.bridge.callGlobalFunction(this.handle, '__lx_call__', JSON.stringify([requestId, action, callInfo]))
@@ -452,11 +410,48 @@ export class JSScriptSource extends BaseSource {
       return '{"status":false,"error":"call exception"}'
     }
     LogUtils.info(`[沙箱] __lx_call__ 返回: ${callRet}`)
-    await this.waitForResult(requestId)
-    const result = this.pendingResults.get(requestId) ?? ''
-    this.pendingResults.delete(requestId)
-    LogUtils.info(`[沙箱] action=${action} 结果: ${result.substring(0, 200)}`)
-    return result
+
+    // 等待循环：处理脚本请求 + 轮询结果（最多 15 秒）
+    const deadline = Date.now() + 15000
+    while (Date.now() < deadline) {
+      // 1. 取脚本挂起的网络请求并发起
+      try {
+        const reqsJson = this.bridge.callGlobalFunction(this.handle, '__lx_takeRequests__', '[]')
+        if (reqsJson && reqsJson !== '[]' && reqsJson !== 'null') {
+          const reqs = JSON.parse(reqsJson) as Array<Record<string, Object>>
+          for (let i = 0; i < reqs.length; i++) {
+            const req = reqs[i]
+            const reqId = (req['requestId'] as string) ?? ''
+            const reqUrl = (req['url'] as string) ?? ''
+            const reqOpts = JSON.stringify(req['options'] ?? {})
+            if (reqId && reqUrl) {
+              LogUtils.info(`[沙箱] 网络请求: ${reqUrl.substring(0, 120)}`)
+              this.doNetworkRequest(reqId, reqUrl, reqOpts)
+            }
+          }
+        }
+      } catch (reqErr) {
+        LogUtils.error(`[沙箱] 取请求队列异常`, JSON.stringify(reqErr))
+      }
+
+      // 2. 检查脚本结果
+      try {
+        const r = this.bridge.callGlobalFunction(this.handle, '__lx_takeResult__', JSON.stringify([requestId]))
+        if (r && r !== 'null' && r !== '') {
+          LogUtils.info(`[沙箱] action=${action} 结果: ${r.substring(0, 200)}`)
+          return r
+        }
+      } catch (resultErr) {
+        LogUtils.error(`[沙箱] 取结果异常`, JSON.stringify(resultErr))
+        return '{"status":false,"error":"result exception"}'
+      }
+
+      // 3. 等待 50ms 再轮询
+      await new Promise<void>((resolve) => setTimeout(resolve, 50))
+    }
+
+    LogUtils.warn(`[沙箱] action=${action} 超时`)
+    return '{"status":false,"error":"script timeout"}'
   }
 
   // ===== BaseSource 接口实现 =====
