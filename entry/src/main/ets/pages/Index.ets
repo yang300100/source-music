@@ -403,7 +403,8 @@ struct SearchContent {
           List() {
             ForEach(this.results, (song: MusicItem) => {
               ListItem() {
-                MusicItemView({ song: song })
+                // 传入整个结果列表 → 点击后整列表入队，支持上一首/下一首切歌
+                MusicItemView({ song: song, queueSongs: this.results, showAddButton: true })
               }
               .swipeAction({
                 end: {
@@ -540,6 +541,27 @@ struct PlaylistListContent {
                       const player = PlayerEngine.getInstance()
                       player.queue.replaceList(pl.songs)
                       player.playCurrent()
+                    })
+
+                  Text('🗑').fontSize(16).fontColor('#f38ba8')
+                    .margin({ left: 8 })
+                    .onClick(() => {
+                      AlertDialog.show({
+                        title: '删除歌单',
+                        message: `确定删除歌单「${pl.name}」吗？`,
+                        autoCancel: true,
+                        primaryButton: {
+                          value: '取消',
+                          action: () => {}
+                        },
+                        secondaryButton: {
+                          value: '删除',
+                          action: () => {
+                            this.playlistMgr.delete(pl.id)
+                            this.playlists = this.playlistMgr.getAll()
+                          }
+                        }
+                      })
                     })
                 }
                 .width('100%')

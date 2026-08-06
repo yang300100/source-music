@@ -259,7 +259,19 @@ export class PlayerEngine {
   /** 跳转到指定进度（毫秒） */
   async seekTo(timeMs: number): Promise<void> {
     if (!this.avPlayer) return
-    await this.avPlayer.seek(timeMs)
+    try {
+      // 记录 seek 前状态，seek 后恢复播放
+      const wasPlaying = this.status === PlayerStatus.PLAYING
+      await this.avPlayer.seek(timeMs)
+      this.currentProgress = timeMs
+      if (wasPlaying && this.status !== PlayerStatus.PLAYING) {
+        await this.avPlayer.play()
+        this.status = PlayerStatus.PLAYING
+      }
+      LogUtils.info(`[播放] seek 到 ${timeMs}ms`)
+    } catch (err) {
+      LogUtils.error('seek 失败', JSON.stringify(err))
+    }
   }
 
   /** 设置播放模式 */
@@ -288,14 +300,13 @@ export class PlayerEngine {
     }
   }
 
-  /** 启动进度更新定时器 */
+  /** 启动进度同步定时器（真实进度由 timeUpdate 回调驱动，这里只做媒体会话同步） */
   private startProgressTimer(): void {
     this.stopProgressTimer()
     this.progressTimer = setInterval(() => {
       if (this.status === PlayerStatus.PLAYING) {
-        this.currentProgress += 1000
-        // 每 5 秒同步一次播放位置到媒体会话
-        if (this.currentProgress % 5000 === 0) {
+        // 每 5 秒同步一次播放位置到媒体会话（不修改 currentProgress，避免与 timeUpdate 冲突）
+        if (this.currentProgress % 5000 < 1000) {
           this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, this.currentProgress, this.duration)
         }
       }
