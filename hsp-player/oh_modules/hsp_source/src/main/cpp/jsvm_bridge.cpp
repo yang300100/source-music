@@ -165,9 +165,33 @@ static std::map<int, PendingCall> g_pendingCalls;
 static int g_nextHandle = 1;
 static std::mutex g_mutex;
 
-// ArkTS 侧回调函数（request 事件通知），在 createVM 时注册
-static napi_ref g_nativeRequestCallback = nullptr;
+// ArkTS 侧回调（request 事件通知），用线程安全函数异步投递
+// 重要：绝不能在 V8 回调栈内直接 napi_call_function 调 ArkTS（跨 VM 嵌套调用会崩溃），
+// 必须通过 TSFN 排队到 ArkTS 事件循环执行
+static napi_threadsafe_function g_requestTsfn = nullptr;
 static napi_env g_napiEnv = nullptr;
+
+/** TSFN 投递的数据：一次网络请求 */
+struct TsfnRequestData {
+    std::string requestId;
+    std::string url;
+    std::string optionsJson;
+};
+
+/** TSFN 回调：在 ArkTS 主线程执行，调用 ArkTS 侧 onRequest 函数 */
+static void CallJsOnRequest(napi_env env, napi_value js_cb, void *context, void *data) {
+    auto *reqData = static_cast<TsfnRequestData *>(data);
+    if (reqData == nullptr) return;
+    napi_value argv[3];
+    napi_create_string_utf8(env, reqData->requestId.c_str(), reqData->requestId.length(), &argv[0]);
+    napi_create_string_utf8(env, reqData->url.c_str(), reqData->url.length(), &argv[1]);
+    napi_create_string_utf8(env, reqData->optionsJson.c_str(), reqData->optionsJson.length(), &argv[2]);
+    napi_value global = nullptr;
+    napi_get_global(env, &global);
+    napi_value result = nullptr;
+    napi_call_function(env, global, js_cb, 3, argv, &result);
+    delete reqData;
+}
 
 /** 根据 env 查找 VM 实例（返回 handle，0 表示未找到） */
 static int FindHandleByEnv(JSVM_Env env) {
@@ -224,19 +248,16 @@ static JSVM_Value JsRequestCallback(JSVM_Env env, JSVM_CallbackInfo info) {
                     pc.requestId = requestId;
                     g_pendingCalls[handle] = pc;
                 }
-                // 通知 ArkTS 发起网络请求
-                if (g_napiEnv != nullptr && g_nativeRequestCallback != nullptr) {
-                    napi_value fn = nullptr;
-                    napi_get_reference_value(g_napiEnv, g_nativeRequestCallback, &fn);
-                    if (fn != nullptr) {
-                        napi_value argvNapi[3];
-                        napi_create_string_utf8(g_napiEnv, requestId.c_str(), requestId.length(), &argvNapi[0]);
-                        napi_create_string_utf8(g_napiEnv, url.c_str(), url.length(), &argvNapi[1]);
-                        napi_create_string_utf8(g_napiEnv, optionsJson.c_str(), optionsJson.length(), &argvNapi[2]);
-                        napi_value global = nullptr;
-                        napi_get_global(g_napiEnv, &global);
-                        napi_value result = nullptr;
-                        napi_call_function(g_napiEnv, global, fn, 3, argvNapi, &result);
+                // 异步投递到 ArkTS 事件循环（TSFN），避免 V8 栈内跨 VM 调用
+                if (g_requestTsfn != nullptr) {
+                    auto *reqData = new TsfnRequestData();
+                    reqData->requestId = requestId;
+                    reqData->url = url;
+                    reqData->optionsJson = optionsJson;
+                    napi_status tsStatus = napi_call_threadsafe_function(
+                        g_requestTsfn, reqData, napi_tsfn_blocking);
+                    if (tsStatus != napi_ok) {
+                        delete reqData;
                     }
                 }
             }
@@ -290,10 +311,19 @@ napi_value NapiCreateVM(napi_env env, napi_callback_info info) {
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
 
     if (argc >= 1 && argv[0] != nullptr) {
-        if (g_nativeRequestCallback != nullptr) {
-            napi_delete_reference(env, g_nativeRequestCallback);
+        // 创建线程安全函数（异步投递请求到 ArkTS 事件循环）
+        if (g_requestTsfn != nullptr) {
+            napi_release_threadsafe_function(g_requestTsfn, napi_tsfn_release);
+            g_requestTsfn = nullptr;
         }
-        napi_create_reference(env, argv[0], 1, &g_nativeRequestCallback);
+        napi_value workName = nullptr;
+        napi_create_string_utf8(env, "jsvmRequest", NAPI_AUTO_LENGTH, &workName);
+        napi_status tsStatus = napi_create_threadsafe_function(
+            env, argv[0], nullptr, workName, 0, 1, nullptr, nullptr, nullptr,
+            CallJsOnRequest, &g_requestTsfn);
+        if (tsStatus != napi_ok) {
+            g_requestTsfn = nullptr;
+        }
         g_napiEnv = env;
     }
 
