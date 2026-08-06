@@ -10,6 +10,7 @@ import {
 } from 'common'
 import { SourceManager } from 'hsp_source'
 import { PlayQueue } from '../queue/PlayQueue'
+import { MediaSession } from './MediaSession'
 
 /**
  * 播放器引擎核心
@@ -17,6 +18,8 @@ import { PlayQueue } from '../queue/PlayQueue'
  * 封装 AVPlayer，管理完整的播放生命周期：
  * 空闲 → 获取URL → 缓冲中 → 播放中 ⇄ 暂停
  * 播放出错 → 自动换源重试
+ *
+ * 集成媒体会话（AVSession）：通知栏/锁屏/播控中心展示与遥控
  */
 export class PlayerEngine {
   status: PlayerStatus = PlayerStatus.IDLE
@@ -25,6 +28,7 @@ export class PlayerEngine {
   duration: number = 0
   queue: PlayQueue = new PlayQueue()
   lyrics: LyricLine[] = []
+  mediaSession: MediaSession = new MediaSession()
 
   private avPlayer: media.AVPlayer | null = null
   private progressTimer: number | null = null
@@ -37,14 +41,42 @@ export class PlayerEngine {
     return PlayerEngine.instance
   }
 
-  /** 初始化 AVPlayer */
-  async init(): Promise<void> {
+  /** 初始化 AVPlayer 和媒体会话 */
+  async init(context?: Context): Promise<void> {
     try {
       this.avPlayer = await media.createAVPlayer()
       this.setupCallbacks()
       LogUtils.info('AVPlayer 初始化完成')
+
+      // 创建媒体会话（需要 Context）
+      if (context) {
+        await this.mediaSession.createSession(context)
+        this.bindMediaSessionCommands()
+      }
     } catch (err) {
       LogUtils.error('AVPlayer 初始化失败', JSON.stringify(err))
+    }
+  }
+
+  /** 绑定媒体会话播控命令到播放器 */
+  private bindMediaSessionCommands(): void {
+    this.mediaSession.onPlayCommand = () => {
+      this.togglePlay()
+    }
+    this.mediaSession.onPauseCommand = () => {
+      this.togglePlay()
+    }
+    this.mediaSession.onTogglePlayCommand = () => {
+      this.togglePlay()
+    }
+    this.mediaSession.onNextCommand = () => {
+      this.next()
+    }
+    this.mediaSession.onPreviousCommand = () => {
+      this.previous()
+    }
+    this.mediaSession.onSeekCommand = (time: number) => {
+      this.seekTo(time)
     }
   }
 
@@ -146,6 +178,11 @@ export class PlayerEngine {
       // 异步获取歌词
       this.fetchLyrics(song)
 
+      // 更新媒体会话（通知栏/锁屏展示）
+      this.mediaSession.updateMetadata(song)
+      this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, 0, this.duration)
+      this.mediaSession.activate()
+
       LogUtils.info(`开始播放: ${song.name} - ${song.singer}`)
     } catch (err) {
       LogUtils.error('播放失败', JSON.stringify(err))
@@ -166,8 +203,10 @@ export class PlayerEngine {
     if (!this.avPlayer) return
     if (this.status === PlayerStatus.PLAYING) {
       await this.avPlayer.pause()
+      this.mediaSession.updatePlaybackState(PlayerStatus.PAUSED, this.currentProgress, this.duration)
     } else if (this.status === PlayerStatus.PAUSED) {
       await this.avPlayer.play()
+      this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, this.currentProgress, this.duration)
     }
   }
 
@@ -228,6 +267,10 @@ export class PlayerEngine {
     this.progressTimer = setInterval(() => {
       if (this.status === PlayerStatus.PLAYING) {
         this.currentProgress += 1000
+        // 每 5 秒同步一次播放位置到媒体会话
+        if (this.currentProgress % 5000 === 0) {
+          this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, this.currentProgress, this.duration)
+        }
       }
     }, 1000)
   }
@@ -243,6 +286,7 @@ export class PlayerEngine {
   /** 释放资源 */
   async release(): Promise<void> {
     this.stopProgressTimer()
+    await this.mediaSession.destroy()
     if (this.avPlayer) {
       await this.avPlayer.release()
       this.avPlayer = null

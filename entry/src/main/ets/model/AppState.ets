@@ -14,9 +14,8 @@ export class AppState {
   async init(): Promise<void> {
     LogUtils.info('应用初始化开始...')
 
-    // 初始化各子系统（音源、播放器、歌单）
+    // 初始化各子系统（音源、歌单；播放器已在 EntryAbility 中初始化）
     await SourceManager.getInstance().init()
-    await PlayerEngine.getInstance().init()
     await PlaylistManager.getInstance().init()
 
     // 将 PlayerEngine 状态同步到可观察 PlayerState（每 500ms）
