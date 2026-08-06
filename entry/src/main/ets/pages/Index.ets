@@ -332,19 +332,7 @@ struct SearchContent {
               .swipeAction({
                 end: {
                   builder: () => {
-                    Button('添加到歌单')
-                      .fontSize(12)
-                      .backgroundColor('#89b4fa')
-                      .onClick(() => {
-                        const playlists = PlaylistManager.getInstance().getAll()
-                        if (playlists.length === 0) {
-                          PlaylistManager.getInstance().create('默认歌单', '自动创建')
-                        }
-                        const pls = PlaylistManager.getInstance().getAll()
-                        if (pls.length > 0) {
-                          PlaylistManager.getInstance().addSongs(pls[0].id, [song])
-                        }
-                      })
+                    this.AddToPlaylistBuilder(song)
                   }
                 }
               })
@@ -369,6 +357,24 @@ struct SearchContent {
       this.results = []
       this.isLoading = false
     })
+  }
+
+  /** 添加到歌单按钮（swipeAction builder 必须是 @Builder） */
+  @Builder
+  AddToPlaylistBuilder(song: MusicItem) {
+    Button('添加到歌单')
+      .fontSize(12)
+      .backgroundColor('#89b4fa')
+      .onClick(() => {
+        const playlists = PlaylistManager.getInstance().getAll()
+        if (playlists.length === 0) {
+          PlaylistManager.getInstance().create('默认歌单', '自动创建')
+        }
+        const pls = PlaylistManager.getInstance().getAll()
+        if (pls.length > 0) {
+          PlaylistManager.getInstance().addSongs(pls[0].id, [song])
+        }
+      })
   }
 }
 
@@ -509,11 +515,7 @@ struct PlaylistDetailContent {
               .swipeAction({
                 end: {
                   builder: () => {
-                    Button('删除').fontSize(13).backgroundColor('#f38ba8')
-                      .onClick(() => {
-                        PlaylistManager.getInstance().removeSongs(this.playlistId, [index])
-                        this.playlist = PlaylistManager.getInstance().getById(this.playlistId) ?? null
-                      })
+                    this.DeleteSongBuilder(index)
                   }
                 }
               })
@@ -525,6 +527,18 @@ struct PlaylistDetailContent {
       .width('100%').height('100%').backgroundColor('#1e1e2e')
     }
     .hideTitleBar(true)
+  }
+
+  /** 删除歌曲按钮（swipeAction builder 必须是 @Builder） */
+  @Builder
+  DeleteSongBuilder(index: number) {
+    Button('删除')
+      .fontSize(13)
+      .backgroundColor('#f38ba8')
+      .onClick(() => {
+        PlaylistManager.getInstance().removeSongs(this.playlistId, [index])
+        this.playlist = PlaylistManager.getInstance().getById(this.playlistId) ?? null
+      })
   }
 
   /** 导出歌单为 .lxmc 文件 */
