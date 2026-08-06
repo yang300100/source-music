@@ -10,6 +10,9 @@
  *
  * 线程模型：所有 JSVM 操作在创建 VM 的线程（ArkTS 主线程）执行，
  * JSVM-API 非线程安全，同一 Env 必须单线程访问。
+ *
+ * 重要：JSVM（V8 内核）要求所有 JSVM_Value 操作必须在 HandleScope 内，
+ * 否则触发 "Cannot create a handle without a HandleScope" 致命错误。
  */
 #include "napi/native_api.h"
 #include "ark_runtime/jsvm.h"
@@ -22,7 +25,7 @@
 
 // ============ 基础工具 ============
 
-/** 获取 JSVM 全局对象的指定属性 */
+/** 获取 JSVM 全局对象的指定属性（调用前必须已 OpenHandleScope） */
 static JSVM_Value GetGlobalProperty(JSVM_Env env, const char *name) {
     JSVM_Value global = nullptr;
     JSVM_Value key = nullptr;
@@ -33,7 +36,7 @@ static JSVM_Value GetGlobalProperty(JSVM_Env env, const char *name) {
     return value;
 }
 
-/** 在 JSVM 中执行 JSON.stringify 将值转为字符串 */
+/** 在 JSVM 中执行 JSON.stringify 将值转为 C++ 字符串（调用前必须已 OpenHandleScope） */
 static std::string ValueToJson(JSVM_Env env, JSVM_Value value) {
     JSVM_Value jsonObj = GetGlobalProperty(env, "JSON");
     if (jsonObj == nullptr) return "";
@@ -42,7 +45,6 @@ static std::string ValueToJson(JSVM_Env env, JSVM_Value value) {
     JSVM_Value argv[1] = { value };
     JSVM_Value result = nullptr;
     if (OH_JSVM_CallFunction(env, jsonObj, stringifyFn, 1, argv, &result) != JSVM_OK) return "";
-    // 读取字符串
     size_t len = 0;
     if (OH_JSVM_GetValueStringUtf8(env, result, nullptr, 0, &len) != JSVM_OK) return "";
     std::string str(len, '\0');
@@ -52,7 +54,7 @@ static std::string ValueToJson(JSVM_Env env, JSVM_Value value) {
     return str;
 }
 
-/** 在 JSVM 中执行 JSON.parse 将字符串转为值 */
+/** 在 JSVM 中执行 JSON.parse 将字符串转为值（调用前必须已 OpenHandleScope） */
 static JSVM_Value JsonToValue(JSVM_Env env, const std::string &json) {
     JSVM_Value jsonObj = GetGlobalProperty(env, "JSON");
     if (jsonObj == nullptr) return nullptr;
@@ -65,7 +67,7 @@ static JSVM_Value JsonToValue(JSVM_Env env, const std::string &json) {
     return result;
 }
 
-/** 判断值是否为函数 */
+/** 判断值是否为函数（调用前必须已 OpenHandleScope） */
 static bool IsFunction(JSVM_Env env, JSVM_Value value) {
     if (value == nullptr) return false;
     JSVM_ValueType type = JSVM_UNDEFINED;
@@ -84,8 +86,8 @@ struct VmInstance {
 
 /** 挂起的 JS 回调（request 异步桥接用） */
 struct PendingCall {
-    JSVM_Ref callbackRef = nullptr;   // JS 侧回调函数引用
-    std::string requestId;            // 请求标识
+    JSVM_Ref callbackRef = nullptr;
+    std::string requestId;
 };
 
 static std::map<int, VmInstance> g_vms;
@@ -101,84 +103,99 @@ static napi_env g_napiEnv = nullptr;
 
 /** JS 侧调用 __lx_request__(requestId, url, optionsJson, callback) */
 static JSVM_Value JsRequestCallback(JSVM_Env env, JSVM_CallbackInfo info) {
+    JSVM_HandleScope scope = nullptr;
+    OH_JSVM_OpenHandleScope(env, &scope);
+
     size_t argc = 4;
     JSVM_Value argv[4] = { nullptr };
     OH_JSVM_GetCbInfo(env, info, &argc, argv, nullptr, nullptr);
-    if (argc < 4) return nullptr;
+    if (argc >= 4) {
+        // 提取参数（转为 std::string，脱离 scope 生命周期）
+        std::string requestId = ValueToJson(env, argv[0]);
+        if (requestId.size() >= 2 && requestId.front() == '"') {
+            requestId = requestId.substr(1, requestId.size() - 2);
+        }
+        std::string url = ValueToJson(env, argv[1]);
+        if (url.size() >= 2 && url.front() == '"') {
+            url = url.substr(1, url.size() - 2);
+        }
+        std::string optionsJson = ValueToJson(env, argv[2]);
 
-    // 提取参数
-    std::string requestId = ValueToJson(env, argv[0]);
-    // 去掉 JSON 字符串的引号
-    if (requestId.size() >= 2 && requestId.front() == '"') {
-        requestId = requestId.substr(1, requestId.size() - 2);
-    }
-    std::string url = ValueToJson(env, argv[1]);
-    if (url.size() >= 2 && url.front() == '"') {
-        url = url.substr(1, url.size() - 2);
-    }
-    std::string optionsJson = ValueToJson(env, argv[2]);
-
-    // 保存 JS 回调引用
-    JSVM_Value cbFn = argv[3];
-    if (!IsFunction(env, cbFn)) return nullptr;
-    JSVM_Ref cbRef = nullptr;
-    if (OH_JSVM_CreateReference(env, cbFn, 1, &cbRef) != JSVM_OK) return nullptr;
-
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        PendingCall pc;
-        pc.callbackRef = cbRef;
-        pc.requestId = requestId;
-        g_pendingCalls[g_nextHandle] = pc; // 用当前 VM 句柄
-    }
-
-    // 通知 ArkTS 发起网络请求
-    if (g_napiEnv != nullptr && g_nativeRequestCallback != nullptr) {
-        napi_value fn = nullptr;
-        napi_get_reference_value(g_napiEnv, g_nativeRequestCallback, &fn);
-        if (fn != nullptr) {
-            napi_value argvNapi[3];
-            napi_create_string_utf8(g_napiEnv, requestId.c_str(), requestId.length(), &argvNapi[0]);
-            napi_create_string_utf8(g_napiEnv, url.c_str(), url.length(), &argvNapi[1]);
-            napi_create_string_utf8(g_napiEnv, optionsJson.c_str(), optionsJson.length(), &argvNapi[2]);
-            napi_value global = nullptr;
-            napi_get_global(g_napiEnv, &global);
-            napi_value result = nullptr;
-            napi_call_function(g_napiEnv, global, fn, 3, argvNapi, &result);
+        // 保存 JS 回调引用（ref 是持久的，不受 scope 影响）
+        JSVM_Value cbFn = argv[3];
+        if (IsFunction(env, cbFn)) {
+            JSVM_Ref cbRef = nullptr;
+            if (OH_JSVM_CreateReference(env, cbFn, 1, &cbRef) == JSVM_OK) {
+                int handle = 0;
+                {
+                    std::lock_guard<std::mutex> lock(g_mutex);
+                    // 找到当前 env 对应的 handle
+                    for (auto &it : g_vms) {
+                        if (it.second.env == env && it.second.alive) {
+                            handle = it.first;
+                            break;
+                        }
+                    }
+                    if (handle > 0) {
+                        PendingCall pc;
+                        pc.callbackRef = cbRef;
+                        pc.requestId = requestId;
+                        g_pendingCalls[handle] = pc;
+                    }
+                }
+                // 通知 ArkTS 发起网络请求
+                if (handle > 0 && g_napiEnv != nullptr && g_nativeRequestCallback != nullptr) {
+                    napi_value fn = nullptr;
+                    napi_get_reference_value(g_napiEnv, g_nativeRequestCallback, &fn);
+                    if (fn != nullptr) {
+                        napi_value argvNapi[3];
+                        napi_create_string_utf8(g_napiEnv, requestId.c_str(), requestId.length(), &argvNapi[0]);
+                        napi_create_string_utf8(g_napiEnv, url.c_str(), url.length(), &argvNapi[1]);
+                        napi_create_string_utf8(g_napiEnv, optionsJson.c_str(), optionsJson.length(), &argvNapi[2]);
+                        napi_value global = nullptr;
+                        napi_get_global(g_napiEnv, &global);
+                        napi_value result = nullptr;
+                        napi_call_function(g_napiEnv, global, fn, 3, argvNapi, &result);
+                    }
+                }
+            }
         }
     }
-    return nullptr;
+
+    OH_JSVM_CloseHandleScope(env, scope);
+    return nullptr; // undefined
 }
 
 /** JS 侧调用 __lx_log__(level, message) */
 static JSVM_Value JsLogCallback(JSVM_Env env, JSVM_CallbackInfo info) {
+    JSVM_HandleScope scope = nullptr;
+    OH_JSVM_OpenHandleScope(env, &scope);
+
     size_t argc = 2;
     JSVM_Value argv[2] = { nullptr };
     OH_JSVM_GetCbInfo(env, info, &argc, argv, nullptr, nullptr);
-    if (argc < 2) return nullptr;
-    std::string level = ValueToJson(env, argv[0]);
-    std::string msg = ValueToJson(env, argv[1]);
-    // 通过 NAPI 打印到 hilog
-    if (g_napiEnv != nullptr) {
-        napi_value console = nullptr;
-        napi_get_reference_value(g_napiEnv, g_nativeRequestCallback, &console); // 复用回调通道，暂简化
-        (void)console;
+    if (argc >= 2) {
+        std::string level = ValueToJson(env, argv[0]);
+        std::string msg = ValueToJson(env, argv[1]);
+        // 暂不处理，后续可桥接 hilog
+        (void)level;
+        (void)msg;
     }
+
+    OH_JSVM_CloseHandleScope(env, scope);
     return nullptr;
 }
 
-/** 初始化 JSVM 原生函数并挂到全局对象 */
+/** 初始化 JSVM 原生函数并挂到全局对象（调用前必须已 OpenHandleScope） */
 static void InitNativeFunctions(JSVM_Env env) {
     JSVM_Value global = nullptr;
     if (OH_JSVM_GetGlobal(env, &global) != JSVM_OK) return;
 
-    // __lx_request__（JSVM_Callback 是结构体指针：{ callback 函数指针, data }）
     JSVM_CallbackStruct reqCb = { JsRequestCallback, nullptr };
     JSVM_Value reqFn = nullptr;
     if (OH_JSVM_CreateFunction(env, "__lx_request__", strlen("__lx_request__"), &reqCb, &reqFn) == JSVM_OK) {
         OH_JSVM_SetNamedProperty(env, global, "__lx_request__", reqFn);
     }
-    // __lx_log__
     JSVM_CallbackStruct logCb = { JsLogCallback, nullptr };
     JSVM_Value logFn = nullptr;
     if (OH_JSVM_CreateFunction(env, "__lx_log__", strlen("__lx_log__"), &logCb, &logFn) == JSVM_OK) {
@@ -196,7 +213,6 @@ napi_value NapiCreateVM(napi_env env, napi_callback_info info) {
     napi_value argv[1] = { nullptr };
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
 
-    // 保存 ArkTS 回调
     if (argc >= 1 && argv[0] != nullptr) {
         if (g_nativeRequestCallback != nullptr) {
             napi_delete_reference(env, g_nativeRequestCallback);
@@ -205,12 +221,11 @@ napi_value NapiCreateVM(napi_env env, napi_callback_info info) {
         g_napiEnv = env;
     }
 
-    // 创建 VM（OH_JSVM_Init 只允许调用一次，用静态标志保证）
+    // OH_JSVM_Init 只允许调用一次
     static bool s_initialized = false;
     if (!s_initialized) {
         JSVM_InitOptions initOptions = { 0 };
-        JSVM_Status initStatus = OH_JSVM_Init(&initOptions);
-        if (initStatus != JSVM_OK) {
+        if (OH_JSVM_Init(&initOptions) != JSVM_OK) {
             napi_value err;
             napi_create_string_utf8(env, "jsvm init failed", NAPI_AUTO_LENGTH, &err);
             napi_throw(env, err);
@@ -228,7 +243,6 @@ napi_value NapiCreateVM(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    // 创建 Env
     JSVM_Env jsEnv = nullptr;
     if (OH_JSVM_CreateEnv(vm, 0, nullptr, &jsEnv) != JSVM_OK) {
         OH_JSVM_DestroyVM(vm);
@@ -238,10 +252,14 @@ napi_value NapiCreateVM(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    // 注入原生函数
-    InitNativeFunctions(jsEnv);
+    // 注入原生函数（需在 HandleScope 内）
+    {
+        JSVM_HandleScope scope = nullptr;
+        OH_JSVM_OpenHandleScope(jsEnv, &scope);
+        InitNativeFunctions(jsEnv);
+        OH_JSVM_CloseHandleScope(jsEnv, scope);
+    }
 
-    // 注册实例
     int handle = 0;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -271,11 +289,16 @@ napi_value NapiDestroyVM(napi_env env, napi_callback_info info) {
         std::lock_guard<std::mutex> lock(g_mutex);
         auto it = g_vms.find(handle);
         if (it != g_vms.end()) {
+            // 清理挂起的回调引用
+            auto pcIt = g_pendingCalls.find(handle);
+            if (pcIt != g_pendingCalls.end()) {
+                OH_JSVM_DeleteReference(it->second.env, pcIt->second.callbackRef);
+                g_pendingCalls.erase(pcIt);
+            }
             OH_JSVM_DestroyEnv(it->second.env);
             OH_JSVM_DestroyVM(it->second.vm);
             g_vms.erase(it);
         }
-        g_pendingCalls.erase(handle);
     }
     return nullptr;
 }
@@ -309,30 +332,36 @@ napi_value NapiEvalScript(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    // 三步执行：字符串 → 编译 → 运行
-    JSVM_Value scriptValue = nullptr;
-    JSVM_Script compiledScript = nullptr;
-    JSVM_Value result = nullptr;
-    JSVM_Status status = JSVM_GENERIC_FAILURE;
-    if (OH_JSVM_CreateStringUtf8(inst->env, script.c_str(), script.length(), &scriptValue) == JSVM_OK &&
-        OH_JSVM_CompileScript(inst->env, scriptValue, nullptr, 0, false, nullptr, &compiledScript) == JSVM_OK) {
-        status = OH_JSVM_RunScript(inst->env, compiledScript, &result);
+    // 所有 JSVM 操作必须在 HandleScope 内
+    std::string resultStr;
+    {
+        JSVM_HandleScope scope = nullptr;
+        OH_JSVM_OpenHandleScope(inst->env, &scope);
+
+        JSVM_Value scriptValue = nullptr;
+        JSVM_Script compiledScript = nullptr;
+        JSVM_Value result = nullptr;
+        JSVM_Status status = JSVM_GENERIC_FAILURE;
+        if (OH_JSVM_CreateStringUtf8(inst->env, script.c_str(), script.length(), &scriptValue) == JSVM_OK &&
+            OH_JSVM_CompileScript(inst->env, scriptValue, nullptr, 0, false, nullptr, &compiledScript) == JSVM_OK) {
+            status = OH_JSVM_RunScript(inst->env, compiledScript, &result);
+        }
+        if (status == JSVM_OK && result != nullptr) {
+            resultStr = ValueToJson(inst->env, result);
+        } else {
+            JSVM_Value ex = nullptr;
+            OH_JSVM_GetAndClearLastException(inst->env, &ex);
+            if (ex != nullptr) {
+                resultStr = "script error: " + ValueToJson(inst->env, ex);
+            } else {
+                resultStr = "script error";
+            }
+        }
+        OH_JSVM_CloseHandleScope(inst->env, scope);
     }
 
     napi_value napiResult;
-    if (status == JSVM_OK && result != nullptr) {
-        std::string json = ValueToJson(inst->env, result);
-        napi_create_string_utf8(env, json.c_str(), json.length(), &napiResult);
-    } else {
-        // 有异常，返回错误信息
-        JSVM_Value ex = nullptr;
-        OH_JSVM_GetAndClearLastException(inst->env, &ex);
-        std::string errMsg = "script error";
-        if (ex != nullptr) {
-            errMsg = ValueToJson(inst->env, ex);
-        }
-        napi_create_string_utf8(env, errMsg.c_str(), errMsg.length(), &napiResult);
-    }
+    napi_create_string_utf8(env, resultStr.c_str(), resultStr.length(), &napiResult);
     return napiResult;
 }
 
@@ -367,42 +396,51 @@ napi_value NapiCallGlobalFunction(napi_env env, napi_callback_info info) {
     }
     if (inst == nullptr || !inst->alive) return nullptr;
 
-    JSVM_Value fn = GetGlobalProperty(inst->env, fnName.c_str());
-    if (!IsFunction(inst->env, fn)) return nullptr;
+    std::string resultStr;
+    {
+        JSVM_HandleScope scope = nullptr;
+        OH_JSVM_OpenHandleScope(inst->env, &scope);
 
-    // 解析参数数组
-    JSVM_Value args = JsonToValue(inst->env, argsJson);
-    uint32_t argCount = 0;
-    std::vector<JSVM_Value> argvList;
-    if (args != nullptr) {
-        JSVM_ValueType type = JSVM_UNDEFINED;
-        OH_JSVM_Typeof(inst->env, args, &type);
-        if (type == JSVM_OBJECT) {
-            OH_JSVM_GetArrayLength(inst->env, args, &argCount);
-            for (uint32_t i = 0; i < argCount; i++) {
-                JSVM_Value item = nullptr;
-                OH_JSVM_GetElement(inst->env, args, i, &item);
-                argvList.push_back(item);
+        JSVM_Value fn = GetGlobalProperty(inst->env, fnName.c_str());
+        if (IsFunction(inst->env, fn)) {
+            JSVM_Value args = JsonToValue(inst->env, argsJson);
+            uint32_t argCount = 0;
+            std::vector<JSVM_Value> argvList;
+            if (args != nullptr) {
+                JSVM_ValueType type = JSVM_UNDEFINED;
+                OH_JSVM_Typeof(inst->env, args, &type);
+                if (type == JSVM_OBJECT) {
+                    OH_JSVM_GetArrayLength(inst->env, args, &argCount);
+                    for (uint32_t i = 0; i < argCount; i++) {
+                        JSVM_Value item = nullptr;
+                        OH_JSVM_GetElement(inst->env, args, i, &item);
+                        argvList.push_back(item);
+                    }
+                }
             }
+            JSVM_Value global = nullptr;
+            OH_JSVM_GetGlobal(inst->env, &global);
+            JSVM_Value result = nullptr;
+            JSVM_Status status = OH_JSVM_CallFunction(inst->env, global, fn, argvList.size(), argvList.data(), &result);
+            if (status == JSVM_OK && result != nullptr) {
+                resultStr = ValueToJson(inst->env, result);
+            } else {
+                JSVM_Value ex = nullptr;
+                OH_JSVM_GetAndClearLastException(inst->env, &ex);
+                if (ex != nullptr) {
+                    resultStr = "call error: " + ValueToJson(inst->env, ex);
+                } else {
+                    resultStr = "call error";
+                }
+            }
+        } else {
+            resultStr = "function not found: " + fnName;
         }
+        OH_JSVM_CloseHandleScope(inst->env, scope);
     }
-
-    JSVM_Value global = nullptr;
-    OH_JSVM_GetGlobal(inst->env, &global);
-    JSVM_Value result = nullptr;
-    JSVM_Status status = OH_JSVM_CallFunction(inst->env, global, fn, argvList.size(), argvList.data(), &result);
 
     napi_value napiResult;
-    if (status == JSVM_OK && result != nullptr) {
-        std::string json = ValueToJson(inst->env, result);
-        napi_create_string_utf8(env, json.c_str(), json.length(), &napiResult);
-    } else {
-        JSVM_Value ex = nullptr;
-        OH_JSVM_GetAndClearLastException(inst->env, &ex);
-        std::string errMsg = "call error";
-        if (ex != nullptr) errMsg = ValueToJson(inst->env, ex);
-        napi_create_string_utf8(env, errMsg.c_str(), errMsg.length(), &napiResult);
-    }
+    napi_create_string_utf8(env, resultStr.c_str(), resultStr.length(), &napiResult);
     return napiResult;
 }
 
@@ -449,27 +487,31 @@ napi_value NapiSetNativeResult(napi_env env, napi_callback_info info) {
     }
     if (inst == nullptr || pc == nullptr || pc->callbackRef == nullptr) return nullptr;
 
-    // 恢复 JS 回调：callback(error, response)
-    JSVM_Value cbFn = nullptr;
-    if (OH_JSVM_GetReferenceValue(inst->env, pc->callbackRef, &cbFn) == JSVM_OK && cbFn != nullptr) {
-        JSVM_Value argvCall[2];
-        if (errorJson == "null" || errorJson.empty()) {
-            argvCall[0] = nullptr;
-            OH_JSVM_GetNull(inst->env, &argvCall[0]);
-        } else {
-            argvCall[0] = JsonToValue(inst->env, errorJson);
+    {
+        JSVM_HandleScope scope = nullptr;
+        OH_JSVM_OpenHandleScope(inst->env, &scope);
+
+        JSVM_Value cbFn = nullptr;
+        if (OH_JSVM_GetReferenceValue(inst->env, pc->callbackRef, &cbFn) == JSVM_OK && cbFn != nullptr) {
+            JSVM_Value argvCall[2];
+            if (errorJson == "null" || errorJson.empty()) {
+                OH_JSVM_GetNull(inst->env, &argvCall[0]);
+            } else {
+                argvCall[0] = JsonToValue(inst->env, errorJson);
+            }
+            if (responseJson.empty()) {
+                OH_JSVM_GetNull(inst->env, &argvCall[1]);
+            } else {
+                argvCall[1] = JsonToValue(inst->env, responseJson);
+            }
+            JSVM_Value global = nullptr;
+            OH_JSVM_GetGlobal(inst->env, &global);
+            JSVM_Value result = nullptr;
+            OH_JSVM_CallFunction(inst->env, global, cbFn, 2, argvCall, &result);
         }
-        if (responseJson.empty()) {
-            OH_JSVM_GetNull(inst->env, &argvCall[1]);
-        } else {
-            argvCall[1] = JsonToValue(inst->env, responseJson);
-        }
-        JSVM_Value global = nullptr;
-        OH_JSVM_GetGlobal(inst->env, &global);
-        JSVM_Value result = nullptr;
-        OH_JSVM_CallFunction(inst->env, global, cbFn, 2, argvCall, &result);
+        OH_JSVM_DeleteReference(inst->env, pc->callbackRef);
+        OH_JSVM_CloseHandleScope(inst->env, scope);
     }
-    OH_JSVM_DeleteReference(inst->env, pc->callbackRef);
 
     {
         std::lock_guard<std::mutex> lock(g_mutex);
