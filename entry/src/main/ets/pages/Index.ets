@@ -16,6 +16,7 @@ struct Index {
   @State showSideBar: boolean = false
   @State currentPage: string = 'NowPlaying'
   private navPathStack: NavPathStack = new NavPathStack()
+  private player: PlayerEngine = PlayerEngine.getInstance()
 
   aboutToAppear(): void {
     // 默认显示正在播放页
@@ -23,53 +24,97 @@ struct Index {
   }
 
   build() {
-    SideBarContainer(SideBarContainerType.Embed) {
-      // ===== 侧边栏 =====
-      Column() {
-        Text('🎵 洛雪音乐')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#89b4fa')
-          .padding({ top: 24, bottom: 16, left: 16 })
-
-        this.NavItem('▶', '正在播放', 'NowPlaying')
-        this.NavItem('🔍', '搜索', 'Search')
-        this.NavItem('📋', '我的歌单', 'PlaylistList')
-        this.NavItem('🔌', '音源管理', 'SourceManage')
-        this.NavItem('⚙', '设置', 'Settings')
-
-        Blank()
-      }
-      .width(200)
-      .height('100%')
-      .backgroundColor('#2d2d3f')
-
-      // ===== 内容区：Navigation 路由切换 =====
-      Navigation(this.navPathStack) {
+    Column() {
+      // ===== 主内容区 =====
+      SideBarContainer(SideBarContainerType.Embed) {
+        // 侧边栏
         Column() {
-          Text('🎵 欢迎使用洛雪音乐~')
-            .fontSize(20)
-            .fontColor('#cdd6f4')
-          Text('请从左侧菜单选择功能')
-            .fontSize(14)
-            .fontColor('#6c7086')
-            .margin({ top: 8 })
+          Text('🎵 洛雪音乐')
+            .fontSize(18)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#89b4fa')
+            .padding({ top: 24, bottom: 16, left: 16 })
+
+          this.NavItem('▶', '正在播放', 'NowPlaying')
+          this.NavItem('🔍', '搜索', 'Search')
+          this.NavItem('📋', '我的歌单', 'PlaylistList')
+          this.NavItem('🔌', '音源管理', 'SourceManage')
+          this.NavItem('⚙', '设置', 'Settings')
+
+          Blank()
         }
-        .width('100%')
+        .width(200)
         .height('100%')
-        .justifyContent(FlexAlign.Center)
+        .backgroundColor('#2d2d3f')
+
+        // 内容区：Navigation 路由切换
+        Navigation(this.navPathStack) {
+          Column() {
+            Text('🎵 欢迎使用洛雪音乐~')
+              .fontSize(20).fontColor('#cdd6f4')
+            Text('请从左侧菜单选择功能')
+              .fontSize(14).fontColor('#6c7086')
+              .margin({ top: 8 })
+          }
+          .width('100%').height('100%')
+          .justifyContent(FlexAlign.Center)
+        }
+        .navDestination(this.pageBuilder)
+        .hideTitleBar(true)
+        .mode(NavigationMode.Stack)
+        .backgroundColor('#1e1e2e')
       }
-      .navDestination(this.pageBuilder)
-      .hideTitleBar(true)
-      .mode(NavigationMode.Stack)
-      .backgroundColor('#1e1e2e')
+      .sideBarWidth(200)
+      .showSideBar(this.showSideBar)
+      .autoHide(true)
+      .minContentWidth(360)
+      .layoutWeight(1)
+
+      // ===== 底部迷你播放条 =====
+      this.MiniPlayerBar()
     }
-    .sideBarWidth(200)
-    .showSideBar(this.showSideBar)
-    .autoHide(true)
-    .minContentWidth(360)
-    .height('100%')
     .width('100%')
+    .height('100%')
+  }
+
+  /** 底部迷你播放条 — 始终可见，显示当前歌曲和基本控制 */
+  @Builder
+  MiniPlayerBar() {
+    if (this.player.currentSong) {
+      Row() {
+        // 歌曲信息（点击回到正在播放页）
+        Row({ space: 8 }) {
+          Text(this.player.currentSong!.name)
+            .fontSize(14).fontColor('#cdd6f4').maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(`- ${this.player.currentSong!.singer}`)
+            .fontSize(12).fontColor('#6c7086').maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .layoutWeight(1)
+        .onClick(() => {
+          this.navPathStack.clear()
+          this.navPathStack.pushPathByName('NowPlaying', null)
+        })
+
+        // 播放控制
+        Text(this.player.status === PlayerStatus.PLAYING ? '⏸' : '▶️')
+          .fontSize(22)
+          .fontColor('#a6e3a1')
+          .padding({ left: 8, right: 8 })
+          .onClick(() => this.player.togglePlay())
+
+        Text('⏭')
+          .fontSize(20)
+          .fontColor('#a6e3a1')
+          .onClick(() => this.player.next())
+      }
+      .width('100%')
+      .height(48)
+      .padding({ left: 12, right: 12 })
+      .backgroundColor('#2d2d3f')
+      .border({ width: { top: 1 }, color: '#45475a' })
+    }
   }
 
   // ===== 路由表：根据页面名返回对应内容 =====
@@ -281,6 +326,25 @@ struct SearchContent {
               ListItem() {
                 MusicItemView({ song: song })
               }
+              .swipeAction({
+                end: {
+                  builder: () => {
+                    Button('添加到歌单')
+                      .fontSize(12)
+                      .backgroundColor('#89b4fa')
+                      .onClick(() => {
+                        const playlists = PlaylistManager.getInstance().getAll()
+                        if (playlists.length === 0) {
+                          PlaylistManager.getInstance().create('默认歌单', '自动创建')
+                        }
+                        const pls = PlaylistManager.getInstance().getAll()
+                        if (pls.length > 0) {
+                          PlaylistManager.getInstance().addSongs(pls[0].id, [song])
+                        }
+                      })
+                  }
+                }
+              })
             })
           }
           .width('100%').layoutWeight(1).scrollBar(BarState.Off)
@@ -320,9 +384,35 @@ struct PlaylistListContent {
   build() {
     NavDestination() {
       Column() {
-        Text('我的歌单')
-          .fontSize(18).fontWeight(FontWeight.Bold).fontColor('#cdd6f4')
-          .padding({ left: 16, top: 16, bottom: 12 })
+        // 标题栏 + 创建按钮
+        Row() {
+          Text('我的歌单')
+            .fontSize(18).fontWeight(FontWeight.Bold).fontColor('#cdd6f4')
+          Blank()
+          Text('+ 新建')
+            .fontSize(14).fontColor('#a6e3a1')
+            .onClick(() => {
+              AlertDialog.show({
+                title: '新建歌单',
+                message: '请输入歌单名称',
+                autoCancel: true,
+                alignment: DialogAlignment.Center,
+                primaryButton: {
+                  value: '取消',
+                  action: () => {}
+                },
+                secondaryButton: {
+                  value: '创建',
+                  action: () => {
+                    this.playlistMgr.create('新歌单', '')
+                    this.playlists = this.playlistMgr.getAll()
+                  }
+                }
+              })
+            })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 16, bottom: 12 })
 
         if (this.playlists.length === 0) {
           Column({ space: 4 }) {
