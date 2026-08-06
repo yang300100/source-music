@@ -194,12 +194,10 @@ static VmInstance *GetVmInstance(int handle) {
 
 /** JS 侧调用 __lx_request__(requestId, url, optionsJson, callback) */
 static JSVM_Value JsRequestCallback(JSVM_Env env, JSVM_CallbackInfo info) {
+    // 重要：此回调由 V8 在脚本执行栈内调用，V8 已自动建立 HandleScope，
+    // 绝不能在此 OpenVMScope/OpenEnvScope（嵌套 Isolate::Scope 会导致 V8 CHECK 崩溃）！
     int handle = FindHandleByEnv(env);
-    VmInstance *inst = handle > 0 ? GetVmInstance(handle) : nullptr;
-    if (inst == nullptr) return nullptr;
-
-    VmScopes scopes;
-    if (!scopes.open(inst->vm, inst->env)) return nullptr;
+    if (handle <= 0) return nullptr;
 
     size_t argc = 4;
     JSVM_Value argv[4] = { nullptr };
@@ -245,19 +243,12 @@ static JSVM_Value JsRequestCallback(JSVM_Env env, JSVM_CallbackInfo info) {
         }
     }
 
-    scopes.close();
     return nullptr; // undefined
 }
 
 /** JS 侧调用 __lx_log__(level, message) */
 static JSVM_Value JsLogCallback(JSVM_Env env, JSVM_CallbackInfo info) {
-    int handle = FindHandleByEnv(env);
-    VmInstance *inst = handle > 0 ? GetVmInstance(handle) : nullptr;
-    if (inst == nullptr) return nullptr;
-
-    VmScopes scopes;
-    if (!scopes.open(inst->vm, inst->env)) return nullptr;
-
+    // 与 JsRequestCallback 相同：V8 回调栈内，不 Open 任何 scope
     size_t argc = 2;
     JSVM_Value argv[2] = { nullptr };
     OH_JSVM_GetCbInfo(env, info, &argc, argv, nullptr, nullptr);
@@ -268,7 +259,6 @@ static JSVM_Value JsLogCallback(JSVM_Env env, JSVM_CallbackInfo info) {
         (void)msg;
     }
 
-    scopes.close();
     return nullptr;
 }
 
