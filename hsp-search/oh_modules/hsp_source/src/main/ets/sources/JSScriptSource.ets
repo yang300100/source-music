@@ -490,10 +490,17 @@ export class JSScriptSource extends BaseSource {
 
   /** 搜索歌曲 */
   async search(query: string, page: number, _quality: MusicQuality): Promise<SearchResult> {
+    // 补全社区音源约定的所有搜索参数字段（不同音源脚本用不同字段名）
     const searchInfo: Record<string, Object> = {}
+    searchInfo['text'] = query
+    searchInfo['keyword'] = query
+    searchInfo['name'] = query
     searchInfo['query'] = query
+    searchInfo['key'] = query
     searchInfo['page'] = page
+    searchInfo['limit'] = 30
     searchInfo['type'] = 'music'
+    searchInfo['pageSize'] = 30
     const raw = await this.callAction('search', searchInfo)
     const list: MusicItem[] = []
     let total = 0
