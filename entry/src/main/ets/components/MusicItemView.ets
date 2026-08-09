@@ -4,6 +4,8 @@ import { PlayerEngine } from 'hsp_player'
 import { SourceManager } from 'hsp_source'
 import { PlaylistNameDialog } from './PlaylistNameDialog'
 import { SourcePickerDialog } from './common/SourcePickerDialog'
+import { PlaylistPickerDialog } from './common/PlaylistPickerDialog'
+import { DialogPosUtils } from '../utils/DialogPosUtils'
 
 @Component
 export struct MusicItemView {
@@ -13,20 +15,8 @@ export struct MusicItemView {
   @Prop queueSongs: MusicItem[] = []
   @Prop showAddButton: boolean = false
   private sourcePickerController: CustomDialogController | null = null
-  private nameDialog: CustomDialogController = new CustomDialogController({
-    builder: PlaylistNameDialog({
-      placeholder: '请输入歌单名称',
-      onConfirm: (name: string) => {
-        PlaylistManager.getInstance().create(name, '').then((pl: LocalPlaylist) => {
-          PlaylistManager.getInstance().addSongs(pl.id, [this.song])
-          this.showToast(`已创建歌单「${name}」并添加`)
-        })
-      }
-    }),
-    autoCancel: true,
-    alignment: DialogAlignment.Center,
-    customStyle: true
-  })
+  private playlistPickerController: CustomDialogController | null = null
+  private nameDialog: CustomDialogController | null = null
 
   private get primaryText(): ResourceColor { return this.isDark ? '#e8e0f8' : '#1a1525' }
   private get secondaryText(): ResourceColor { return this.isDark ? '#7a6f98' : '#6b6088' }
@@ -67,7 +57,7 @@ export struct MusicItemView {
           .padding({ left: 8, right: 8, top: 3, bottom: 3 })
           .backgroundColor('#20b388ff')
           .borderRadius(6)
-          .onClick(() => { this.openSourcePicker() })
+          .onClick((event: ClickEvent) => { this.openSourcePicker(event) })
       }
 
       if (this.showAddButton) {
@@ -75,7 +65,7 @@ export struct MusicItemView {
           .fontSize(18).fontColor('#b388ff')
           .width(28).height(28).textAlign(TextAlign.Center)
           .borderRadius(14).backgroundColor('#20b388ff')
-          .onClick(() => { this.addToPlaylist() })
+          .onClick((event: ClickEvent) => { this.addToPlaylist(event) })
       }
 
       Text(this.formatDuration(this.song.interval))
@@ -113,7 +103,8 @@ export struct MusicItemView {
   }
 
   /** 打开"选择搜索源"弹窗（手动换源：列出全部导入音源，lx-music 风格） */
-  private openSourcePicker(): void {
+  private openSourcePicker(event: ClickEvent): void {
+    const pos = DialogPosUtils.fromClickForDialog(event, 320, 440)
     const mgr = SourceManager.getInstance()
     mgr.getSearchSources().then((sources: SourceInstance[]) => {
       const searchSources = sources.filter((source: SourceInstance) =>
@@ -132,7 +123,8 @@ export struct MusicItemView {
           }
         }),
         autoCancel: true,
-        alignment: DialogAlignment.Center,
+        alignment: DialogAlignment.TopStart,
+        offset: { dx: pos.x, dy: pos.y },
         customStyle: true
       })
       this.sourcePickerController.open()
@@ -169,37 +161,51 @@ export struct MusicItemView {
     }
   }
 
-  private addToPlaylist(): void {
+  private addToPlaylist(event: ClickEvent): void {
     const playlists = PlaylistManager.getInstance().getAll()
-    if (playlists.length === 0) { this.nameDialog.open(); return }
-    if (playlists.length === 1) {
-      PlaylistManager.getInstance().addSongs(playlists[0].id, [this.song])
-      this.showToast(`已添加到「${playlists[0].name}」`)
-      return
-    }
-    this.getUIContext().showAlertDialog({
-      title: '添加到歌单',
-      message: `选择歌单：1.${playlists[0].name}  2.${playlists[1].name}`,
-      autoCancel: true,
-      primaryButton: {
-        value: playlists[0].name,
-        action: () => {
-          PlaylistManager.getInstance().addSongs(playlists[0].id, [this.song])
-          this.showToast(`已添加到「${playlists[0].name}」`)
-        }
-      },
-      secondaryButton: {
-        value: playlists.length > 1 ? playlists[1].name : '新建歌单',
-        action: () => {
-          if (playlists.length > 1) {
-            PlaylistManager.getInstance().addSongs(playlists[1].id, [this.song])
-            this.showToast(`已添加到「${playlists[1].name}」`)
-          } else {
-            setTimeout(() => { this.nameDialog.open() }, 300)
+    const height = Math.min(500, 120 + (playlists.length + 1) * 52)
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, height)
+    this.playlistPickerController = new CustomDialogController({
+      builder: PlaylistPickerDialog({
+        song: this.song,
+        playlists: playlists,
+        onPick: (playlistId: string, pickEvent: ClickEvent) => {
+          if (playlistId === 'new') {
+            setTimeout(() => { this.openNameDialog(pickEvent) }, 200)
+            return
           }
+          const playlist = playlists.find((item: LocalPlaylist) => item.id === playlistId)
+          PlaylistManager.getInstance().addSongs(playlistId, [this.song]).then((ok: boolean) => {
+            this.showToast(ok ? `已添加到「${playlist?.name ?? '歌单'}」` : '添加失败')
+          })
         }
-      }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
     })
+    this.playlistPickerController.open()
+  }
+
+  private openNameDialog(event: ClickEvent): void {
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, 220)
+    this.nameDialog = new CustomDialogController({
+      builder: PlaylistNameDialog({
+        placeholder: '请输入歌单名称',
+        onConfirm: (name: string) => {
+          PlaylistManager.getInstance().create(name, '').then((pl: LocalPlaylist) => {
+            PlaylistManager.getInstance().addSongs(pl.id, [this.song])
+            this.showToast(`已创建歌单「${name}」并添加`)
+          })
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    this.nameDialog.open()
   }
 
   private showToast(msg: string): void {

@@ -28,17 +28,20 @@ export class ThemeColors {
 
   /** 页面卡片边框（Settings/Playlist/Search 等） */
   static borderFaint(isDark: boolean): ResourceColor {
-    return isDark ? '#08ffffff' : '#08000000'
+    void isDark
+    return '#d8a8ff'
   }
 
   /** 导航胶囊/迷你播放条边框（Index 用，透明度略高） */
   static navBorderFaint(isDark: boolean): ResourceColor {
-    return isDark ? '#10ffffff' : '#08000000'
+    void isDark
+    return '#d8a8ff'
   }
 
   /** 弹窗边框 */
   static dialogBorderFaint(isDark: boolean): ResourceColor {
-    return isDark ? '#15ffffff' : '#10000000'
+    void isDark
+    return '#d8a8ff'
   }
 
   /** 标准卡片背景（Settings/PlaylistList/PlaylistDetail/SourceManage） */

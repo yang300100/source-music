@@ -20,7 +20,7 @@ export struct SourceManagePanel {
   /** 删除音源 */
   onRemoveSource: (id: string) => void = (id: string) => {}
   /** 展示导入方式选择弹窗 */
-  showImportDialog: () => void = () => {}
+  showImportDialog: (event: ClickEvent) => void = (event: ClickEvent) => {}
 
   /** 测试结果缓存：id → { success, message } */
   @State testResults: Record<string, string> = {}
@@ -48,7 +48,7 @@ export struct SourceManagePanel {
         Text('支持 .js 音源脚本').fontSize(11).fontColor(this.secondaryText)
       }
       .width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
-      .onClick(() => { this.showImportDialog() })
+      .onClick((event: ClickEvent) => { this.showImportDialog(event) })
 
       if (this.importStatus) {
         Text(this.importStatus)

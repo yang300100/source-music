@@ -7,7 +7,10 @@ import { SearchBar } from '../components/search/SearchBar'
 import { SourceChipBar, SearchSourceOption } from '../components/search/SourceChipBar'
 import { SearchResultList } from '../components/search/SearchResultList'
 import { MusicItemView } from '../components/MusicItemView'
+import { PlaylistNameDialog } from '../components/PlaylistNameDialog'
+import { PlaylistPickerDialog } from '../components/common/PlaylistPickerDialog'
 import { ThemeColors } from '../theme/ThemeColors'
+import { DialogPosUtils } from '../utils/DialogPosUtils'
 
 @Component
 export struct SearchContent {
@@ -21,6 +24,8 @@ export struct SearchContent {
   @State searchSources: SearchSourceOption[] = []
   @State playHistory: MusicItem[] = []
   @State hotSearch: HotSearchItem[] = []
+  private playlistPickerController: CustomDialogController | null = null
+  private newPlaylistDialogController: CustomDialogController | null = null
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -37,7 +42,9 @@ export struct SearchContent {
       this.searchSources = list
     })
     this.activeSourceId = ''
-    PlayerEngine.getInstance().getPlayHistory().then((h: MusicItem[]) => { this.playHistory = h })
+    PlayerEngine.getInstance().getPlayHistory().then((h: MusicItem[]) => {
+      this.playHistory = h.slice(0, 10)
+    })
   }
 
   build() {
@@ -108,7 +115,7 @@ export struct SearchContent {
               }
               .width('100%').padding(16)
 
-              ForEach(this.playHistory, (song: MusicItem) => {
+              ForEach(this.playHistory.slice(0, 10), (song: MusicItem) => {
                 Row() {
                   MusicItemView({
                     song: song,
@@ -135,7 +142,7 @@ export struct SearchContent {
       } else {
         SearchResultList({
           results: this.results,
-          onAddToPlaylist: (song: MusicItem) => { this.addToPlaylist(song) }
+          onAddToPlaylist: (song: MusicItem, event: ClickEvent) => { this.addToPlaylist(song, event) }
         })
       }
     }
@@ -151,17 +158,53 @@ export struct SearchContent {
     }).catch(() => { this.results = []; this.isLoading = false })
   }
 
-  private addToPlaylist(song: MusicItem): void {
+  private addToPlaylist(song: MusicItem, event: ClickEvent): void {
     const playlists = PlaylistManager.getInstance().getAll()
-    if (playlists.length === 0) {
-      PlaylistManager.getInstance().create('默认歌单', '自动创建').then((pl: LocalPlaylist) => {
-        PlaylistManager.getInstance().addSongs(pl.id, [song])
-        this.showToast('已添加到默认歌单')
-      })
-    } else {
-      PlaylistManager.getInstance().addSongs(playlists[0].id, [song])
-      this.showToast(`已添加到「${playlists[0].name}」`)
-    }
+    const height = Math.min(500, 120 + (playlists.length + 1) * 52)
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, height)
+    this.playlistPickerController = new CustomDialogController({
+      builder: PlaylistPickerDialog({
+        song: song,
+        playlists: playlists,
+        onPick: (playlistId: string, pickEvent: ClickEvent) => {
+          if (playlistId === 'new') {
+            setTimeout(() => { this.openNewPlaylistDialog(song, pickEvent) }, 200)
+            return
+          }
+          const playlist = playlists.find((item: LocalPlaylist) => item.id === playlistId)
+          PlaylistManager.getInstance().addSongs(playlistId, [song]).then((ok: boolean) => {
+            this.showToast(ok ? `已添加到「${playlist?.name ?? '歌单'}」` : '添加失败')
+          })
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    this.playlistPickerController.open()
+  }
+
+  private openNewPlaylistDialog(song: MusicItem, event: ClickEvent): void {
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, 220)
+    this.newPlaylistDialogController = new CustomDialogController({
+      builder: PlaylistNameDialog({
+        title: '新建歌单并添加',
+        confirmText: '创建并添加',
+        placeholder: '请输入歌单名称',
+        onConfirm: (name: string) => {
+          PlaylistManager.getInstance().create(name, '').then((playlist: LocalPlaylist) => {
+            PlaylistManager.getInstance().addSongs(playlist.id, [song])
+            this.showToast(`已创建「${name}」并添加歌曲`)
+          })
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    this.newPlaylistDialogController.open()
   }
 
   private showToast(msg: string): void {

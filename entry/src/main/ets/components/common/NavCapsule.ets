@@ -24,22 +24,20 @@ export struct NavCapsule {
   @Prop activePage: string = ''
   /** 点击导航选项回调 */
   onSelect: (pageName: string) => void = (pageName: string) => {}
-  /** 展开/收起状态（由 Index 持有，联动面板显隐） */
-  @Link capsuleExpanded: boolean
+  /** 悬浮导航自身是否显示；与侧边页面是否展开完全独立 */
+  @Link capsuleVisible: boolean
   /** 展开时回调（携带胶囊所在侧：true=左半屏，false=右半屏） */
   onExpand: (isLeft: boolean) => void = (isLeft: boolean) => {}
   /** 展开状态下拖拽跨越中线时回调（面板方向跟随切换） */
   onSideChange: (isLeft: boolean) => void = (isLeft: boolean) => {}
-  /** 拖拽贴边收起时回调（外部清空 dockSide，保证再次手势展开时 @Watch 能触发） */
-  onCollapseByDrag: () => void = () => {}
   /** 外部手势锚定侧边：'left'/'right'（锚定到屏幕边缘垂直居中），''=自由拖拽 */
   @Prop @Watch('onDockSideChange') dockSide: string = ''
-  /** 菜单展开状态（与 capsuleExpanded 解耦：面板可保持展开而菜单收起） */
-  @State menuOpen: boolean = true
   @State capsuleOffsetX: number = 12
   @State capsuleOffsetY: number = 60
   private dragStartX: number = 0
   private dragStartY: number = 0
+  /** 本次手势的原始横向位移，用它判断是否确实向屏幕外侧滑动 */
+  private dragOffsetX: number = 0
   private lastIsLeftHalf: boolean = true
   /** 展开态胶囊宽度 */
   private readonly capsuleWidth: number = 72
@@ -50,14 +48,10 @@ export struct NavCapsule {
 
   /**
    * 外部手势锚定：'left'/'right' 时定位到屏幕对应侧边缘垂直居中并展开菜单；
-   * ''（收起）时菜单随之收起，悬浮球不再显示。
+   * '' 表示保持当前位置，不改变悬浮导航的可见状态。
    */
   private onDockSideChange(): void {
-    if (this.dockSide === '') {
-      this.menuOpen = false
-      return
-    }
-    this.menuOpen = true
+    if (this.dockSide === '') return
     animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
       const screenW = NavCapsule.getScreenWidth()
       const screenH = NavCapsule.getScreenHeight()
@@ -69,7 +63,7 @@ export struct NavCapsule {
 
   build() {
     Stack() {
-      if (this.menuOpen) {
+      if (this.capsuleVisible) {
         Column({ space: 6 }) {
           ForEach(this.tabs, (tab: NavTab) => {
             Column() {
@@ -103,21 +97,23 @@ export struct NavCapsule {
         .borderRadius(28)
         .backgroundColor(this.capsuleBg)
         .backdropBlur(50)
-        .border({ width: 0.5, color: this.isDark ? '#40b388ff' : '#10000000' })
+        .border({ width: 0.5, color: '#d8a8ff' })
         .shadow({ radius: 20, color: '#30b388ff', offsetX: 0, offsetY: 4 })
       }
     }
     .position({ x: this.capsuleOffsetX, y: this.capsuleOffsetY })
-    .gesture(
+    .priorityGesture(
       PanGesture({ direction: PanDirection.All })
         .onActionStart(() => {
           this.dragStartX = this.capsuleOffsetX
           this.dragStartY = this.capsuleOffsetY
+          this.dragOffsetX = 0
           this.lastIsLeftHalf = this.capsuleOffsetX < NavCapsule.getScreenWidth() / 2
         })
         .onActionUpdate((event: GestureEvent) => {
+          this.dragOffsetX = event.offsetX
           // 实时限位：X/Y 均限制在屏幕范围内，防止悬浮球丢失
-          const bounds = NavCapsule.getBounds(this.menuOpen)
+          const bounds = NavCapsule.getBounds(this.capsuleVisible)
           let newX = this.dragStartX + event.offsetX
           let newY = this.dragStartY + event.offsetY
           if (newX < bounds.minX) newX = bounds.minX
@@ -127,7 +123,7 @@ export struct NavCapsule {
           this.capsuleOffsetX = newX
           this.capsuleOffsetY = newY
           // 展开状态下拖拽跨越中线：通知外部切换面板方向
-          if (this.menuOpen) {
+          if (this.capsuleVisible) {
             const screenW = NavCapsule.getScreenWidth()
             const isLeftHalf = newX < screenW / 2
             if (isLeftHalf !== this.lastIsLeftHalf) {
@@ -136,27 +132,28 @@ export struct NavCapsule {
             }
           }
         })
-        .onActionEnd(() => {
+        .onActionEnd((event: GestureEvent) => {
           const screenW = NavCapsule.getScreenWidth()
-          // 左半屏：仅左滑贴左边缘收起；右半屏：仅右滑贴右边缘收起
-          const isLeftHalf = this.capsuleOffsetX < screenW / 2
-          const isNearLeftEdge = isLeftHalf && this.capsuleOffsetX < 8
-          const isNearRightEdge = !isLeftHalf && this.capsuleOffsetX > screenW - 72 - 8
+          // 以手势开始时所在侧和结束总位移判断，快速滑动也不会漏判。
+          const startedOnLeft = this.dragStartX < screenW / 2
+          const totalOffsetX = Math.abs(event.offsetX) > Math.abs(this.dragOffsetX) ? event.offsetX : this.dragOffsetX
+          const shouldHide = this.capsuleVisible &&
+            ((startedOnLeft && totalOffsetX < -32) || (!startedOnLeft && totalOffsetX > 32))
           animateTo({ duration: 250, curve: Curve.EaseOut }, () => {
-            if ((isNearLeftEdge || isNearRightEdge) && this.menuOpen) {
-              this.menuOpen = false
-              this.capsuleExpanded = false
-              this.capsuleOffsetX = isNearLeftEdge ? 4 : NavCapsule.getBounds(false).maxX
-              // 通知外部清空 dockSide（否则再次手势展开时 @Watch 不触发，菜单无法恢复）
-              this.onCollapseByDrag()
+            if (shouldHide) {
+              // 这里只隐藏悬浮导航，不能联动收起已经展开的侧边页面。
+              this.capsuleVisible = false
+              // 隐藏时仍按完整胶囊宽度保存坐标，避免右侧恢复后有一部分落在屏幕外。
+              this.capsuleOffsetX = startedOnLeft ? 4 : NavCapsule.getBounds(true).maxX
             }
             // 拖拽结束后再次夹紧边界（安全兜底）
-            const bounds = NavCapsule.getBounds(this.menuOpen)
+            const bounds = NavCapsule.getBounds(this.capsuleVisible)
             if (this.capsuleOffsetX < bounds.minX) this.capsuleOffsetX = bounds.minX
             if (this.capsuleOffsetX > bounds.maxX) this.capsuleOffsetX = bounds.maxX
             if (this.capsuleOffsetY < bounds.minY) this.capsuleOffsetY = bounds.minY
             if (this.capsuleOffsetY > bounds.maxY) this.capsuleOffsetY = bounds.maxY
           })
+          this.dragOffsetX = 0
         })
     )
   }

@@ -12,7 +12,7 @@ export struct PlaylistHeader {
   /** 当前歌单（null 时渲染占位） */
   @Prop playlist: LocalPlaylist | null = null
   /** 导出歌单 */
-  onExport: () => void = () => {}
+  onExport: (event: ClickEvent) => void = (event: ClickEvent) => {}
   /** 播放全部 */
   onPlayAll: () => void = () => {}
 
@@ -37,7 +37,7 @@ export struct PlaylistHeader {
           }
           Blank()
           Text('导出').fontSize(13).fontColor(this.accentColor).margin({ right: 12 })
-            .onClick(() => { this.onExport() })
+            .onClick((event: ClickEvent) => { this.onExport(event) })
           Image($r('app.media.ic_play'))
             .width(30).height(30)
             .fillColor(this.accentColor)

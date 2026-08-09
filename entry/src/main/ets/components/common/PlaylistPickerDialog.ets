@@ -15,7 +15,7 @@ export struct PlaylistPickerDialog {
   /** 歌单列表 */
   playlists: LocalPlaylist[] = []
   /** 选择歌单回调（playlistId 或 'new'） */
-  onPick: (playlistId: string) => void = (playlistId: string) => {}
+  onPick: (playlistId: string, event: ClickEvent) => void = (playlistId: string, event: ClickEvent) => {}
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -83,8 +83,8 @@ export struct PlaylistPickerDialog {
     .padding({ left: 16, right: 16, top: 13, bottom: 13 })
     .backgroundColor(this.rowBg)
     .borderRadius(14)
-    .onClick(() => {
-      this.onPick(playlistId)
+    .onClick((event: ClickEvent) => {
+      this.onPick(playlistId, event)
       this.controller?.close()
     })
   }

@@ -15,7 +15,42 @@ export class PlayQueue {
   replaceList(songs: MusicItem[], startIndex: number = 0): void {
     this.list = [...songs]
     this.currentIndex = Math.min(startIndex, this.list.length - 1)
+    // 随机模式下新队列也要立刻洗牌，让界面展示的顺序就是后续播放顺序。
+    if (this.mode === PlayMode.SHUFFLE) {
+      this.shuffleForPlayback()
+    }
     LogUtils.info(`播放队列已更新: ${this.list.length} 首, 当前第 ${this.currentIndex + 1} 首`)
+  }
+
+  /**
+   * 一次性生成随机播放顺序。
+   * 当前歌曲固定在原索引，其余歌曲使用 Fisher-Yates 洗牌；这样切换模式时不会打断正在播放的歌曲。
+   */
+  shuffleForPlayback(): void {
+    if (this.list.length <= 1) return
+    const current = this.getCurrentSong()
+    const remaining: MusicItem[] = []
+    for (let i = 0; i < this.list.length; i++) {
+      if (i !== this.currentIndex) remaining.push(this.list[i])
+    }
+    for (let i = remaining.length - 1; i > 0; i--) {
+      const target = Math.floor(Math.random() * (i + 1))
+      const temp = remaining[i]
+      remaining[i] = remaining[target]
+      remaining[target] = temp
+    }
+    let remainingIndex = 0
+    for (let i = 0; i < this.list.length; i++) {
+      if (i === this.currentIndex && current) {
+        this.list[i] = current
+      } else {
+        this.list[i] = remaining[remainingIndex]
+        remainingIndex++
+      }
+    }
+    // 换成新数组引用，确保 ArkUI 的播放列表面板能立即观察到顺序变化。
+    this.list = [...this.list]
+    LogUtils.info(`随机播放顺序已生成: ${this.list.length} 首, 当前索引=${this.currentIndex}`)
   }
 
   /** 追加歌曲到队列末尾 */
@@ -75,7 +110,8 @@ export class PlayQueue {
       case PlayMode.LOOP_ONE:
         return this.list[this.currentIndex]
       case PlayMode.SHUFFLE:
-        this.currentIndex = Math.floor(Math.random() * this.list.length)
+        // 顺序已在进入随机模式时一次性洗牌，这里沿可见队列向后播放。
+        this.currentIndex = (this.currentIndex + 1) % this.list.length
         return this.list[this.currentIndex]
       case PlayMode.LOOP_ALL:
         this.currentIndex = (this.currentIndex + 1) % this.list.length
@@ -97,7 +133,7 @@ export class PlayQueue {
       case PlayMode.LOOP_ONE:
         return this.list[this.currentIndex]
       case PlayMode.SHUFFLE:
-        return this.list[Math.floor(Math.random() * this.list.length)]
+        return this.list[(this.currentIndex + 1) % this.list.length]
       case PlayMode.LOOP_ALL:
         return this.list[(this.currentIndex + 1) % this.list.length]
       case PlayMode.SEQUENCE:
@@ -116,7 +152,7 @@ export class PlayQueue {
       case PlayMode.LOOP_ONE:
         return this.list[this.currentIndex]
       case PlayMode.SHUFFLE:
-        this.currentIndex = Math.floor(Math.random() * this.list.length)
+        this.currentIndex = (this.currentIndex - 1 + this.list.length) % this.list.length
         return this.list[this.currentIndex]
       default:
         if (this.currentIndex > 0) {

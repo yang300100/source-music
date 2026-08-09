@@ -22,6 +22,24 @@ export class DialogPosUtils {
     return pos
   }
 
+  /**
+   * 以点击点为锚计算弹窗位置，并将弹窗完整限制在屏幕内。
+   * width/height 为弹窗的预估尺寸，边缘预留 8vp。
+   */
+  static fromClickForDialog(event: ClickEvent, width: number, height: number): DialogPosition {
+    return DialogPosUtils.fit(DialogPosUtils.fromClick(event), width, height)
+  }
+
+  /** 以现有坐标为锚进行屏幕边界夹紧，供长按和二级弹窗复用 */
+  static fit(position: DialogPosition, width: number, height: number): DialogPosition {
+    const result = new DialogPosition()
+    const maxX = Math.max(8, DialogPosUtils.screenWidth() - width - 8)
+    const maxY = Math.max(8, DialogPosUtils.screenHeight() - height - 8)
+    result.x = Math.max(8, Math.min(position.x, maxX))
+    result.y = Math.max(8, Math.min(position.y, maxY))
+    return result
+  }
+
   /** 从长按事件获取 vp 坐标（弹窗左上角定位点，y 向下偏移 16 避免遮挡手指） */
   static fromGesture(event: GestureEvent): DialogPosition {
     const density = DialogPosUtils.getDensity()

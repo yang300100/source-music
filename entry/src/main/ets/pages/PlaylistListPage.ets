@@ -5,6 +5,8 @@ import { PlaylistNameDialog } from '../components/PlaylistNameDialog'
 import { MusicItemView } from '../components/MusicItemView'
 import { PlaylistSidebar } from '../components/playlist/PlaylistSidebar'
 import { PlaylistHeader } from '../components/playlist/PlaylistHeader'
+import { AppActionDialog, AppDialogAction } from '../components/common/AppActionDialog'
+import { DialogPosition, DialogPosUtils } from '../utils/DialogPosUtils'
 import { picker, fileIo } from '@kit.CoreFileKit'
 import { util } from '@kit.ArkTS'
 
@@ -22,20 +24,11 @@ export struct PlaylistListContent {
   @Prop portrait: boolean = false
   private playlistMgr: PlaylistManager = PlaylistManager.getInstance()
   private refreshTimer: number = -1
-  private nameDialog: CustomDialogController = new CustomDialogController({
-    builder: PlaylistNameDialog({
-      placeholder: '请输入歌单名称',
-      onConfirm: (name: string) => {
-        this.playlistMgr.create(name, '').then(() => { this.playlists = this.playlistMgr.getAll() })
-      }
-    }),
-    autoCancel: true,
-    alignment: DialogAlignment.Bottom,
-    offset: { dx: 0, dy: -20 },
-    customStyle: true
-  })
+  private nameDialog: CustomDialogController | null = null
   /** 重命名对话框（成员保持引用，避免局部 controller 被 GC） */
   private renameDialog: CustomDialogController | null = null
+  private actionDialogController: CustomDialogController | null = null
+  private dialogPosition: DialogPosition = new DialogPosition()
 
   aboutToAppear(): void {
     this.playlists = this.playlistMgr.getAll()
@@ -82,14 +75,35 @@ export struct PlaylistListContent {
   }
 
   /** 长按菜单：重命名（先选中该歌单） */
-  private renamePlaylist(id: string): void {
+  private showCreateDialog(event: ClickEvent): void {
+    this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 300, 220)
+    this.nameDialog = new CustomDialogController({
+      builder: PlaylistNameDialog({
+        placeholder: '请输入歌单名称',
+        onConfirm: (name: string) => {
+          this.playlistMgr.create(name, '').then(() => { this.playlists = this.playlistMgr.getAll() })
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
+      customStyle: true
+    })
+    this.nameDialog.open()
+  }
+
+  private renamePlaylist(id: string, event: ClickEvent): void {
     this.selectPlaylist(id)
     const pl = this.playlist
     if (!pl) return
+    this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 300, 220)
     // 成员变量保持引用，避免局部 controller 被 GC 后对话框内 this.controller 失效
     this.renameDialog = new CustomDialogController({
       builder: PlaylistNameDialog({
+        title: '重命名歌单',
+        confirmText: '保存',
         placeholder: pl.name,
+        defaultValue: pl.name,
         onConfirm: (name: string) => {
           PlaylistManager.getInstance().update(pl.id, name).then(() => {
             this.playlists = this.playlistMgr.getAll()
@@ -98,33 +112,28 @@ export struct PlaylistListContent {
         }
       }),
       autoCancel: true,
-      alignment: DialogAlignment.Bottom,
-      offset: { dx: 0, dy: -20 },
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
       customStyle: true
     })
     this.renameDialog.open()
   }
 
   /** 长按菜单：删除（先选中该歌单） */
-  private deletePlaylist(id: string): void {
+  private deletePlaylist(id: string, event: ClickEvent): void {
     this.selectPlaylist(id)
-    this.getUIContext().showAlertDialog({
-      title: '删除歌单',
-      message: `确定删除歌单「${this.playlist?.name}」吗？`,
-      autoCancel: true,
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: {
-        value: '删除',
-        action: () => {
-          this.playlistMgr.delete(id).then(() => {
-            this.playlists = this.playlistMgr.getAll()
-            this.selectedPlaylistId = ''
-            this.playlist = null
-            this.onSelectionChange(false)
-          })
-        }
-      }
-    })
+    const actions: AppDialogAction[] = [{ id: 'delete', label: '确认删除', danger: true }]
+    this.showActionDialog('删除歌单', `确定删除歌单「${this.playlist?.name}」吗？`, actions,
+      (actionId: string, actionEvent: ClickEvent) => {
+      void actionEvent
+      if (actionId !== 'delete') return
+      this.playlistMgr.delete(id).then(() => {
+        this.playlists = this.playlistMgr.getAll()
+        this.selectedPlaylistId = ''
+        this.playlist = null
+        this.onSelectionChange(false)
+      })
+    }, event)
   }
 
   /** 长按菜单：移动排序（direction: -1 上移 / 1 下移） */
@@ -142,7 +151,7 @@ export struct PlaylistListContent {
           Column() {
             PlaylistHeader({
               playlist: this.playlist,
-              onExport: () => { this.exportPlaylist() },
+              onExport: (event: ClickEvent) => { this.exportPlaylist(event) },
               onPlayAll: () => {
                 const target = this.playlist
                 if (!target) return
@@ -175,10 +184,10 @@ export struct PlaylistListContent {
             selectedId: this.selectedPlaylistId,
             borderOnLeft: true,
             hasDetail: this.playlist !== null,
-            onCreate: () => { this.nameDialog.open() },
+            onCreate: (event: ClickEvent) => { this.showCreateDialog(event) },
             onSelect: (id: string) => { this.selectPlaylist(id) },
-            onRename: (id: string) => { this.renamePlaylist(id) },
-            onDelete: (id: string) => { this.deletePlaylist(id) },
+            onRename: (id: string, event: ClickEvent) => { this.renamePlaylist(id, event) },
+            onDelete: (id: string, event: ClickEvent) => { this.deletePlaylist(id, event) },
             onMove: (id: string, direction: number) => { this.movePlaylist(id, direction) }
           })
         }
@@ -195,7 +204,7 @@ export struct PlaylistListContent {
           Column() {
             PlaylistHeader({
               playlist: this.playlist,
-              onExport: () => { this.exportPlaylist() },
+              onExport: (event: ClickEvent) => { this.exportPlaylist(event) },
               onPlayAll: () => {
                 const target = this.playlist
                 if (!target) return
@@ -228,10 +237,10 @@ export struct PlaylistListContent {
             selectedId: this.selectedPlaylistId,
             borderOnLeft: false,
             hasDetail: this.playlist !== null,
-            onCreate: () => { this.nameDialog.open() },
+            onCreate: (event: ClickEvent) => { this.showCreateDialog(event) },
             onSelect: (id: string) => { this.selectPlaylist(id) },
-            onRename: (id: string) => { this.renamePlaylist(id) },
-            onDelete: (id: string) => { this.deletePlaylist(id) },
+            onRename: (id: string, event: ClickEvent) => { this.renamePlaylist(id, event) },
+            onDelete: (id: string, event: ClickEvent) => { this.deletePlaylist(id, event) },
             onMove: (id: string, direction: number) => { this.movePlaylist(id, direction) }
           })
         }
@@ -258,10 +267,11 @@ export struct PlaylistListContent {
       })
   }
 
-  private async exportPlaylist(): Promise<void> {
+  private async exportPlaylist(event: ClickEvent): Promise<void> {
+    this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 320, 180)
     const lxmc = PlaylistManager.getInstance().exportToLxmc(this.selectedPlaylistId)
     if (!lxmc) {
-      this.getUIContext().showAlertDialog({ title: '导出失败', message: '歌单不存在或为空', autoCancel: true })
+      this.showInfoDialog('导出失败', '歌单不存在或为空')
       return
     }
     try {
@@ -278,11 +288,44 @@ export struct PlaylistListContent {
         this.showToast('歌单已导出为 .lxmc 文件')
       }
     } catch (err) {
-      this.getUIContext().showAlertDialog({ title: '导出失败', message: JSON.stringify(err), autoCancel: true })
+      this.showInfoDialog('导出失败', JSON.stringify(err))
     }
   }
 
   private showToast(msg: string): void {
     this.getUIContext().getPromptAction().showToast({ message: msg, duration: 1500 })
+  }
+
+  private showActionDialog(
+    title: string,
+    message: string,
+    actions: AppDialogAction[],
+    onAction: (actionId: string, event: ClickEvent) => void,
+    event?: ClickEvent
+  ): void {
+    if (event) {
+      this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 320, 100 + actions.length * 52)
+    }
+    this.actionDialogController = new CustomDialogController({
+      builder: AppActionDialog({
+        title: title,
+        message: message,
+        actions: actions,
+        onAction: onAction
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
+      customStyle: true
+    })
+    this.actionDialogController.open()
+  }
+
+  private showInfoDialog(title: string, message: string): void {
+    const actions: AppDialogAction[] = [{ id: 'ok', label: '知道了' }]
+    this.showActionDialog(title, message, actions, (actionId: string, event: ClickEvent) => {
+      void actionId
+      void event
+    })
   }
 }

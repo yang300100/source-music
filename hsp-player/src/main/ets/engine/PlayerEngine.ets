@@ -549,7 +549,12 @@ export class PlayerEngine {
 
   /** 设置播放模式 */
   setPlayMode(mode: PlayMode): void {
+    const enteringShuffle = mode === PlayMode.SHUFFLE && this.queue.mode !== PlayMode.SHUFFLE
     this.queue.mode = mode
+    if (enteringShuffle) {
+      this.queue.shuffleForPlayback()
+    }
+    this.saveQueueState()
   }
 
   /** 播放完成处理 */

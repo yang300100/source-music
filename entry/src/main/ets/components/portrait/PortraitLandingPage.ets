@@ -62,7 +62,7 @@ export struct PortraitLandingPage {
       .padding({ top: 8, bottom: 14 })
       .backgroundColor(this.isDark ? '#cc141218' : '#e8ffffff')
       .backdropBlur(30)
-      .border({ width: { top: 0.5 }, color: this.isDark ? '#30ffffff' : '#18000000' })
+      .border({ width: { top: 0.5 }, color: '#d8a8ff' })
     }
     .width('100%')
     .height('100%')

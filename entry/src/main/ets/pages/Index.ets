@@ -27,7 +27,10 @@ struct Index {
   @StorageLink('themeMode') @Watch('onThemeChange') themeMode: string = 'dark'
   @StorageLink('systemColorMode') @Watch('onSystemColorModeChange') systemColorMode: number = 0
   @State activePanel: PanelName = 'queue'
+  /** 侧边页面是否展开 */
   @State capsuleExpanded: boolean = true
+  /** 页面切换悬浮导航是否显示；与侧边页面展开状态相互独立 */
+  @State capsuleVisible: boolean = true
   @State queueSongs: MusicItem[] = []
   @State queueIndex: number = -1
   @State playerStatus: PlayerStatus = PlayerStatus.IDLE
@@ -281,12 +284,11 @@ struct Index {
           NavCapsule({
             tabs: this.tabs,
             activePage: this.getActiveTabName(),
-            capsuleExpanded: this.capsuleExpanded,
+            capsuleVisible: this.capsuleVisible,
             dockSide: this.capsuleDockSide,
             onSelect: (pageName: string) => { this.handleTabSelect(pageName) },
             onExpand: (isLeft: boolean) => { this.panelSide = isLeft ? 'left' : 'right' },
-            onSideChange: (isLeft: boolean) => { this.panelSide = isLeft ? 'left' : 'right' },
-            onCollapseByDrag: () => { this.capsuleDockSide = '' }
+            onSideChange: (isLeft: boolean) => { this.panelSide = isLeft ? 'left' : 'right' }
           })
         }
         .width('100%')
@@ -358,27 +360,36 @@ struct Index {
 
   /**
    * 全局横滑控制导航悬浮球：
-   * - 未展开：左滑锚定右侧展开（菜单出现在右侧），右滑锚定左侧展开
-   * - 已展开：右侧面板右滑收起，左侧面板左滑收起
+   * - 侧边页面展开时：向所在屏幕外侧滑动可收起页面
+   * - 悬浮导航隐藏但页面仍展开时：向屏幕内侧滑动可恢复悬浮导航
+   * - 侧边页面收起时：左滑从右侧展开，右滑从左侧展开，不受上一次所在侧限制
    */
   private handleGlobalSwipe(): void {
     if (this.capsuleExpanded) {
-      if (this.panelSide === 'right' && this.swipeX > 80) {
+      if (this.panelSide === 'left' && this.swipeX < -80) {
         this.capsuleExpanded = false
-        this.capsuleDockSide = ''
-      } else if (this.panelSide === 'left' && this.swipeX < -80) {
+        this.capsuleVisible = false
+      } else if (this.panelSide === 'right' && this.swipeX > 80) {
         this.capsuleExpanded = false
-        this.capsuleDockSide = ''
+        this.capsuleVisible = false
+      } else if (!this.capsuleVisible) {
+        if (this.panelSide === 'left' && this.swipeX > 80) {
+          this.capsuleVisible = true
+        } else if (this.panelSide === 'right' && this.swipeX < -80) {
+          this.capsuleVisible = true
+        }
       }
     } else {
       if (this.swipeX < -80) {
         this.panelSide = 'right'
         this.capsuleDockSide = 'right'
         this.capsuleExpanded = true
+        this.capsuleVisible = true
       } else if (this.swipeX > 80) {
         this.panelSide = 'left'
         this.capsuleDockSide = 'left'
         this.capsuleExpanded = true
+        this.capsuleVisible = true
       }
     }
     this.swipeX = 0

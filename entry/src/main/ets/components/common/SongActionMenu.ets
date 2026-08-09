@@ -16,7 +16,7 @@ export struct SongActionMenu {
   /** 是否已收藏 */
   isFavorited: boolean = false
   /** 操作回调：'playlist' | 'next' | 'favorite' | 'download' */
-  onAction: (action: string) => void = (action: string) => {}
+  onAction: (action: string, event: ClickEvent) => void = (action: string, event: ClickEvent) => {}
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -46,24 +46,24 @@ export struct SongActionMenu {
       .width('100%')
       .padding({ left: 20, right: 12, top: 20, bottom: 8 })
 
-      this.ActionRow('添加到歌单', () => {
-        this.onAction('playlist')
+      this.ActionRow('添加到歌单', (event: ClickEvent) => {
+        this.onAction('playlist', event)
         this.controller?.close()
       })
-      this.ActionRow('下一首播放', () => {
-        this.onAction('next')
+      this.ActionRow('下一首播放', (event: ClickEvent) => {
+        this.onAction('next', event)
         this.controller?.close()
       })
-      this.ActionRow(this.isFavorited ? '取消收藏' : '收藏', () => {
-        this.onAction('favorite')
+      this.ActionRow(this.isFavorited ? '取消收藏' : '收藏', (event: ClickEvent) => {
+        this.onAction('favorite', event)
         this.controller?.close()
       })
-      this.ActionRow('下载到本地', () => {
-        this.onAction('download')
+      this.ActionRow('下载到本地', (event: ClickEvent) => {
+        this.onAction('download', event)
         this.controller?.close()
       })
-      this.ActionRow('分享歌曲', () => {
-        this.onAction('share')
+      this.ActionRow('分享歌曲', (event: ClickEvent) => {
+        this.onAction('share', event)
         this.controller?.close()
       })
     }
@@ -86,7 +86,7 @@ export struct SongActionMenu {
   }
 
   @Builder
-  ActionRow(label: string, action: () => void) {
+  ActionRow(label: string, action: (event: ClickEvent) => void) {
     Row() {
       Text(label)
         .fontSize(15).fontColor(this.primaryText)
@@ -98,6 +98,6 @@ export struct SongActionMenu {
     .padding({ left: 16, right: 16, top: 13, bottom: 13 })
     .backgroundColor(this.rowBg)
     .borderRadius(14)
-    .onClick(() => { action() })
+    .onClick((event: ClickEvent) => { action(event) })
   }
 }

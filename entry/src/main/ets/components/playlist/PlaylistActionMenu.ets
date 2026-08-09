@@ -13,7 +13,7 @@ export struct PlaylistActionMenu {
   /** 歌单名 */
   playlistName: string = ''
   /** 操作回调：'rename' | 'up' | 'down' | 'delete' */
-  onAction: (action: string) => void = (action: string) => {}
+  onAction: (action: string, event: ClickEvent) => void = (action: string, event: ClickEvent) => {}
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -42,20 +42,20 @@ export struct PlaylistActionMenu {
       .width('100%')
       .padding({ left: 20, right: 12, top: 20, bottom: 8 })
 
-      this.ActionRow('重命名', () => {
-        this.onAction('rename')
+      this.ActionRow('重命名', (event: ClickEvent) => {
+        this.onAction('rename', event)
         this.controller?.close()
       })
-      this.ActionRow('上移', () => {
-        this.onAction('up')
+      this.ActionRow('上移', (event: ClickEvent) => {
+        this.onAction('up', event)
         this.controller?.close()
       })
-      this.ActionRow('下移', () => {
-        this.onAction('down')
+      this.ActionRow('下移', (event: ClickEvent) => {
+        this.onAction('down', event)
         this.controller?.close()
       })
-      this.ActionRow('删除歌单', () => {
-        this.onAction('delete')
+      this.ActionRow('删除歌单', (event: ClickEvent) => {
+        this.onAction('delete', event)
         this.controller?.close()
       })
     }
@@ -78,7 +78,7 @@ export struct PlaylistActionMenu {
   }
 
   @Builder
-  ActionRow(label: string, action: () => void) {
+  ActionRow(label: string, action: (event: ClickEvent) => void) {
     Row() {
       Text(label)
         .fontSize(15).fontColor(this.primaryText)
@@ -90,6 +90,6 @@ export struct PlaylistActionMenu {
     .padding({ left: 16, right: 16, top: 13, bottom: 13 })
     .backgroundColor(this.rowBg)
     .borderRadius(14)
-    .onClick(() => { action() })
+    .onClick((event: ClickEvent) => { action(event) })
   }
 }

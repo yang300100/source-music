@@ -12,7 +12,7 @@ export struct SearchResultList {
   /** 搜索结果 */
   @Prop results: MusicItem[] = []
   /** 添加到歌单回调 */
-  onAddToPlaylist: (song: MusicItem) => void = (song: MusicItem) => {}
+  onAddToPlaylist: (song: MusicItem, event: ClickEvent) => void = (song: MusicItem, event: ClickEvent) => {}
 
   build() {
     List() {
@@ -36,6 +36,6 @@ export struct SearchResultList {
       .backgroundColor('#b388ff')
       .padding({ left: 16, right: 16, top: 8, bottom: 8 })
       .borderRadius(8)
-      .onClick(() => { this.onAddToPlaylist(song) })
+      .onClick((event: ClickEvent) => { this.onAddToPlaylist(song, event) })
   }
 }

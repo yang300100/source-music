@@ -56,7 +56,7 @@ export struct NowPlayingPanel {
     builder: SongActionMenu({
       song: null,
       isFavorited: false,
-      onAction: (action: string) => { this.handleSongAction(action) }
+      onAction: (action: string, event: ClickEvent) => { this.handleSongAction(action, event) }
     }),
     autoCancel: true,
     alignment: DialogAlignment.Center,
@@ -211,31 +211,27 @@ export struct NowPlayingPanel {
   private showMoreMenu(event: ClickEvent): void {
     const song = this.player.currentSong
     if (!song) return
-    const pos = DialogPosUtils.fromClick(event)
-    // 宽度 300vp，防止超出右边界
-    const width = 300
-    const maxX = DialogPosUtils.screenWidth() - width - 8
-    const dx = pos.x > maxX ? maxX : pos.x
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, 390)
     this.actionMenuController = new CustomDialogController({
       builder: SongActionMenu({
         song: song,
         isFavorited: this.isFavorited,
-        onAction: (action: string) => { this.handleSongAction(action) }
+        onAction: (action: string, actionEvent: ClickEvent) => { this.handleSongAction(action, actionEvent) }
       }),
       autoCancel: true,
       alignment: DialogAlignment.TopStart,
-      offset: { dx: dx, dy: pos.y },
+      offset: { dx: pos.x, dy: pos.y },
       customStyle: true
     })
     this.actionMenuController.open()
   }
 
   /** 处理操作菜单回调 */
-  private handleSongAction(action: string): void {
+  private handleSongAction(action: string, event: ClickEvent): void {
     const song = this.player.currentSong
     if (!song) return
     if (action === 'playlist') {
-      this.addToPlaylist(song)
+      this.addToPlaylist(song, event)
     } else if (action === 'next') {
       this.player.queue.insertAt(song, this.player.queue.currentIndex + 1)
       this.getUIContext().getPromptAction().showToast({ message: '已设为下一首播放', duration: 1200 })
@@ -274,13 +270,16 @@ export struct NowPlayingPanel {
   }
 
   /** 添加到歌单（自定义底部卡片弹窗，成员保持引用避免 controller 被 GC） */
-  private addToPlaylist(song: MusicItem): void {
+  private addToPlaylist(song: MusicItem, event: ClickEvent): void {
     const playlists = PlaylistManager.getInstance().getAll()
+    const height = Math.min(500, 120 + (playlists.length + 1) * 52)
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, height)
     this.pickerController = new CustomDialogController({
       builder: PlaylistPickerDialog({
         song: song,
         playlists: playlists,
-        onPick: (playlistId: string) => {
+        onPick: (playlistId: string, pickEvent: ClickEvent) => {
+          void pickEvent
           if (playlistId === 'new') {
             PlaylistManager.getInstance().create('新歌单', '').then((newPl: LocalPlaylist) => {
               PlaylistManager.getInstance().addSongs(newPl.id, [song])
@@ -294,8 +293,8 @@ export struct NowPlayingPanel {
         }
       }),
       autoCancel: true,
-      alignment: DialogAlignment.Bottom,
-      offset: { dx: 0, dy: -20 },
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
       customStyle: true
     })
     this.pickerController.open()

@@ -1,20 +1,30 @@
+import { ThemeColors } from '../theme/ThemeColors'
+
 @CustomDialog
 export struct PlaylistNameDialog {
   @StorageLink('themeIsDark') isDark: boolean = true
   controller: CustomDialogController
   onConfirm: (name: string) => void = () => {}
+  title: string = '新建歌单'
+  confirmText: string = '创建'
   placeholder: string = '请输入歌单名称'
+  defaultValue: string = ''
+  fallbackValue: string = '新歌单'
   @State inputText: string = ''
 
   private get primaryText(): ResourceColor { return this.isDark ? '#e8e0f8' : '#1a1525' }
   private get secondaryText(): ResourceColor { return this.isDark ? '#7a6f98' : '#6b6088' }
   private get inputBg(): ResourceColor { return this.isDark ? '#80181525' : '#c0e8e0f0' }
-  private get dialogBg(): ResourceColor { return this.isDark ? '#70181525' : '#88ffffff' }
-  private get borderFaint(): ResourceColor { return this.isDark ? '#15ffffff' : '#10000000' }
+  private get dialogBg(): ResourceColor { return ThemeColors.dialogBg(this.isDark) }
+  private get borderFaint(): ResourceColor { return ThemeColors.dialogBorderFaint(this.isDark) }
+
+  aboutToAppear(): void {
+    this.inputText = this.defaultValue
+  }
 
   build() {
     Column() {
-      Text('新建歌单')
+      Text(this.title)
         .fontSize(18).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
         .margin({ bottom: 16 })
 
@@ -33,13 +43,15 @@ export struct PlaylistNameDialog {
           .padding({ left: 20, right: 20, top: 8, bottom: 8 }).borderRadius(10)
           .onClick(() => { this.controller?.close() })
 
-        Text('创建')
+        Text(this.confirmText)
           .fontSize(14).fontColor('#0e0c18')
           .backgroundColor('#b388ff')
           .padding({ left: 20, right: 20, top: 8, bottom: 8 }).borderRadius(10)
           .onClick(() => {
-            const name = this.inputText.trim().length > 0 ? this.inputText.trim() : '新歌单'
-            this.onConfirm(name)
+            const input = this.inputText.trim()
+            const value = input.length > 0 ? input : this.fallbackValue
+            if (value.length === 0) return
+            this.onConfirm(value)
             this.controller?.close()
           })
       }

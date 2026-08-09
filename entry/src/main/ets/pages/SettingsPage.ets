@@ -13,7 +13,8 @@ import { SleepTimerDialog } from '../components/common/SleepTimerDialog'
 import { FontSizeDialog } from '../components/common/FontSizeDialog'
 import { QualityDialog } from '../components/common/QualityDialog'
 import { ImageCropper } from '../components/common/ImageCropper'
-import { DialogPosUtils } from '../utils/DialogPosUtils'
+import { AppActionDialog, AppDialogAction } from '../components/common/AppActionDialog'
+import { DialogPosition, DialogPosUtils } from '../utils/DialogPosUtils'
 import { ThemeColors } from '../theme/ThemeColors'
 
 @Component
@@ -74,6 +75,10 @@ export struct SettingsContent {
     alignment: DialogAlignment.Center,
     customStyle: true
   })
+  /** 应用统一操作弹窗，成员引用可避免弹窗控制器被提前回收 */
+  private actionDialogController: CustomDialogController | null = null
+  /** 最近一次弹窗锚点，异步错误提示也沿用触发操作的位置 */
+  private dialogPosition: DialogPosition = new DialogPosition()
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -180,7 +185,7 @@ export struct SettingsContent {
                     this.sources = [...this.sourceManager.getManageSources()]
                   })
                 },
-                showImportDialog: () => { this.showImportSourceDialog() }
+                showImportDialog: (event: ClickEvent) => { this.showImportSourceDialog(event) }
               })
             }
           }
@@ -225,7 +230,7 @@ export struct SettingsContent {
             SettingsRow({
               title: '主题',
               value: this.themeMode === 'dark' ? '深色' : '浅色',
-              onRowClick: (event: ClickEvent) => { this.showThemeDialog() }
+              onRowClick: (event: ClickEvent) => { this.showThemeDialog(event) }
             })
           }
 
@@ -329,7 +334,7 @@ export struct SettingsContent {
             SettingsRow({
               title: '备份与恢复',
               showArrow: true,
-              onRowClick: (event: ClickEvent) => { this.showBackupDialog() }
+              onRowClick: (event: ClickEvent) => { this.showBackupDialog(event) }
             })
           }
 
@@ -337,7 +342,7 @@ export struct SettingsContent {
             SettingsRow({
               title: '清除缓存',
               value: this.cacheSizeText,
-              onRowClick: (event: ClickEvent) => { this.clearCaches() }
+              onRowClick: (event: ClickEvent) => { this.clearCaches(event) }
             })
           }
 
@@ -356,15 +361,19 @@ export struct SettingsContent {
     .scrollBar(BarState.Auto)
   }
 
-  private showImportSourceDialog(): void {
-    this.getUIContext().showAlertDialog({
-      title: '导入音源',
-      message: '选择导入方式（支持 lx-music 社区 .js 音源脚本）',
-      autoCancel: true,
-      alignment: DialogAlignment.Bottom,
-      primaryButton: { value: '从本地文件', action: () => { this.importSourceFromLocal() } },
-      secondaryButton: { value: '从在线链接', action: () => { this.importSourceFromOnline() } }
-    })
+  private showImportSourceDialog(event: ClickEvent): void {
+    const actions: AppDialogAction[] = [
+      { id: 'local', label: '从本地文件导入' },
+      { id: 'online', label: '从在线链接导入' }
+    ]
+    this.showActionDialog('导入音源', '支持 lx-music 社区 .js 音源脚本', actions,
+      (actionId: string, actionEvent: ClickEvent) => {
+      if (actionId === 'local') {
+        this.importSourceFromLocal()
+      } else if (actionId === 'online') {
+        this.importSourceFromOnline(actionEvent)
+      }
+    }, event)
   }
 
   private async importLocalMusic(): Promise<void> {
@@ -428,10 +437,14 @@ export struct SettingsContent {
   private onlineSourceDialog: CustomDialogController | null = null
 
   /** 从在线链接导入音源：弹出 URL 输入对话框 */
-  private importSourceFromOnline(): void {
+  private importSourceFromOnline(event: ClickEvent): void {
+    this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 300, 220)
     this.onlineSourceDialog = new CustomDialogController({
       builder: PlaylistNameDialog({
+        title: '从链接导入音源',
+        confirmText: '导入',
         placeholder: '请输入音源脚本 URL（.js 在线链接）',
+        fallbackValue: '',
         onConfirm: (url: string) => {
           const trimmed = url.trim()
           if (!trimmed.startsWith('http')) {
@@ -442,8 +455,8 @@ export struct SettingsContent {
         }
       }),
       autoCancel: true,
-      alignment: DialogAlignment.Bottom,
-      offset: { dx: 0, dy: -20 },
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
       customStyle: true
     })
     this.onlineSourceDialog.open()
@@ -494,10 +507,7 @@ export struct SettingsContent {
   }
 
   private showQualityDialog(event: ClickEvent): void {
-    const pos = DialogPosUtils.fromClick(event)
-    const width = 300
-    const maxX = DialogPosUtils.screenWidth() - width - 8
-    const dx = pos.x > maxX ? maxX : pos.x
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, 300)
     this.qualityDialogController = new CustomDialogController({
       builder: QualityDialog({
         currentQuality: this.defaultQualityText,
@@ -505,7 +515,7 @@ export struct SettingsContent {
       }),
       autoCancel: true,
       alignment: DialogAlignment.TopStart,
-      offset: { dx: dx, dy: pos.y },
+      offset: { dx: pos.x, dy: pos.y },
       customStyle: true
     })
     this.qualityDialogController.open()
@@ -517,30 +527,28 @@ export struct SettingsContent {
     StorageUtils.putString('default_quality', quality)
   }
 
-  private clearCaches(): void {
-    this.getUIContext().showAlertDialog({
-      title: '清除缓存',
-      message: `将清除播放地址、歌词、换源等缓存（约 ${this.cacheSizeText}），不影响歌单与收藏`,
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: {
-        value: '清除',
-        action: () => {
-          this.sourceManager.clearAllCaches().then((ok: boolean) => {
-            this.showToast(ok ? '缓存已清除' : '清除失败')
-            this.refreshCacheSize()
-          })
-        }
-      }
-    })
+  private clearCaches(event: ClickEvent): void {
+    const actions: AppDialogAction[] = [
+      { id: 'clear', label: '确认清除', danger: true }
+    ]
+    this.showActionDialog(
+      '清除缓存',
+      `将清除播放地址、歌词、换源等缓存（约 ${this.cacheSizeText}），不影响歌单与收藏`,
+      actions,
+      (actionId: string, actionEvent: ClickEvent) => {
+        void actionEvent
+        if (actionId !== 'clear') return
+        this.sourceManager.clearAllCaches().then((ok: boolean) => {
+          this.showToast(ok ? '缓存已清除' : '清除失败')
+          this.refreshCacheSize()
+        })
+      },
+      event
+    )
   }
 
   private showLyricFontDialog(event: ClickEvent): void {
-    const pos = DialogPosUtils.fromClick(event)
-    const width = 300
-    const maxX = DialogPosUtils.screenWidth() - width - 8
-    const dx = pos.x > maxX ? maxX : pos.x
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, 300)
     this.fontDialogController = new CustomDialogController({
       builder: FontSizeDialog({
         currentSize: this.lyricFontSize,
@@ -548,7 +556,7 @@ export struct SettingsContent {
       }),
       autoCancel: true,
       alignment: DialogAlignment.TopStart,
-      offset: { dx: dx, dy: pos.y },
+      offset: { dx: pos.x, dy: pos.y },
       customStyle: true
     })
     this.fontDialogController.open()
@@ -561,10 +569,7 @@ export struct SettingsContent {
   }
 
   private showSleepTimerDialog(event: ClickEvent): void {
-    const pos = DialogPosUtils.fromClick(event)
-    const width = 300
-    const maxX = DialogPosUtils.screenWidth() - width - 8
-    const dx = pos.x > maxX ? maxX : pos.x
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, 330)
     this.sleepDialogController = new CustomDialogController({
       builder: SleepTimerDialog({
         currentText: this.sleepRemainText,
@@ -572,7 +577,7 @@ export struct SettingsContent {
       }),
       autoCancel: true,
       alignment: DialogAlignment.TopStart,
-      offset: { dx: dx, dy: pos.y },
+      offset: { dx: pos.x, dy: pos.y },
       customStyle: true
     })
     this.sleepDialogController.open()
@@ -632,15 +637,15 @@ export struct SettingsContent {
     this.showToast('已恢复默认背景')
   }
 
-  private showThemeDialog(): void {
-    this.getUIContext().showAlertDialog({
-      title: '选择主题',
-      message: '深色 / 浅色',
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-      primaryButton: {
-        value: '深色',
-        action: () => {
+  private showThemeDialog(event: ClickEvent): void {
+    const actions: AppDialogAction[] = [
+      { id: 'dark', label: '深色主题' },
+      { id: 'light', label: '浅色主题' }
+    ]
+    this.showActionDialog('选择主题', '选择后将关闭自动跟随系统主题', actions,
+      (actionId: string, actionEvent: ClickEvent) => {
+      void actionEvent
+      if (actionId === 'dark') {
           this.autoThemeEnabled = false
           AppStorage.setOrCreate('autoTheme', false)
           StorageUtils.putString('auto_theme', 'false')
@@ -648,11 +653,7 @@ export struct SettingsContent {
           AppStorage.setOrCreate('themeIsDark', true)
           StorageUtils.putString('theme_mode', 'dark')
           this.applyTheme('dark')
-        }
-      },
-      secondaryButton: {
-        value: '浅色',
-        action: () => {
+      } else if (actionId === 'light') {
           this.autoThemeEnabled = false
           AppStorage.setOrCreate('autoTheme', false)
           StorageUtils.putString('auto_theme', 'false')
@@ -660,9 +661,8 @@ export struct SettingsContent {
           AppStorage.setOrCreate('themeIsDark', false)
           StorageUtils.putString('theme_mode', 'light')
           this.applyTheme('light')
-        }
       }
-    })
+    }, event)
   }
 
   private applyTheme(mode: string): void {
@@ -692,15 +692,20 @@ export struct SettingsContent {
     }
   }
 
-  private showBackupDialog(): void {
-    this.getUIContext().showAlertDialog({
-      title: '备份与恢复',
-      message: '导出 / 导入应用数据（歌单、本地音乐列表）',
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-      primaryButton: { value: '导出备份', action: () => { this.exportBackup() } },
-      secondaryButton: { value: '恢复备份', action: () => { this.importBackup() } }
-    })
+  private showBackupDialog(event: ClickEvent): void {
+    const actions: AppDialogAction[] = [
+      { id: 'export', label: '导出备份' },
+      { id: 'import', label: '恢复备份' }
+    ]
+    this.showActionDialog('备份与恢复', '导出或导入应用数据（歌单、本地音乐列表）', actions,
+      (actionId: string, actionEvent: ClickEvent) => {
+      void actionEvent
+      if (actionId === 'export') {
+        this.exportBackup()
+      } else if (actionId === 'import') {
+        this.importBackup()
+      }
+    }, event)
   }
 
   private async exportBackup(): Promise<void> {
@@ -730,7 +735,7 @@ export struct SettingsContent {
         this.showToast(`已导出 ${plList.length} 个歌单`)
       }
     } catch (err) {
-      this.getUIContext().showAlertDialog({ title: '备份失败', message: JSON.stringify(err), autoCancel: true })
+      this.showInfoDialog('备份失败', JSON.stringify(err))
     }
   }
 
@@ -767,11 +772,47 @@ export struct SettingsContent {
     } catch (err) {
       const e = err as BusinessError
       LogUtils.error(`[恢复] 解析失败: code=${e.code} message=${e.message} json=${JSON.stringify(err)}`)
-      this.getUIContext().showAlertDialog({ title: '恢复失败', message: `解析失败: ${e.code} ${e.message}`, autoCancel: true })
+      this.showInfoDialog('恢复失败', `解析失败: ${e.code} ${e.message}`)
     }
   }
 
   private showToast(msg: string): void {
     this.getUIContext().getPromptAction().showToast({ message: msg, duration: 1500 })
+  }
+
+  /** 打开应用统一的自定义操作卡片 */
+  private showActionDialog(
+    title: string,
+    message: string,
+    actions: AppDialogAction[],
+    onAction: (actionId: string, event: ClickEvent) => void,
+    event?: ClickEvent
+  ): void {
+    if (event) {
+      const estimatedHeight = 100 + actions.length * 52
+      this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 320, estimatedHeight)
+    }
+    this.actionDialogController = new CustomDialogController({
+      builder: AppActionDialog({
+        title: title,
+        message: message,
+        actions: actions,
+        onAction: onAction
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
+      customStyle: true
+    })
+    this.actionDialogController.open()
+  }
+
+  /** 信息提示也使用同一套自定义弹窗，不再回退到原生 AlertDialog */
+  private showInfoDialog(title: string, message: string): void {
+    const actions: AppDialogAction[] = [{ id: 'ok', label: '知道了' }]
+    this.showActionDialog(title, message, actions, (actionId: string, event: ClickEvent) => {
+      void actionId
+      void event
+    })
   }
 }
