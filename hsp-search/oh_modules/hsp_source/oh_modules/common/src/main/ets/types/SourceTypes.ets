@@ -28,6 +28,8 @@ export interface SourceInstance {
   getLyric(songmid: string, fullSong?: MusicItem): Promise<LyricLine[]>
   getPlaylistInfo(listid: string): Promise<PlaylistInfo>
   getHotSearch(): Promise<HotSearchItem[]>
+  /** 支持解析的歌曲源列表（lx-music sources 语义；空 = 不限） */
+  getSupportedSources(): string[]
 }
 
 /**
@@ -46,4 +48,12 @@ export interface SourceImportResult {
   success: boolean
   source?: SourceInstance
   error?: string
+}
+
+/**
+ * 音源测试结果（导入后自动测试）
+ */
+export interface SourceTestResult {
+  success: boolean
+  message: string
 }

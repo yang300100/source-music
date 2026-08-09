@@ -7,7 +7,8 @@
       "cFlags": "",
       "cppFlags": "",
       "targets": [
-        "jsvm_bridge"
+        "jsvm_bridge",
+        "quickjs_bridge"
       ],
       "abiFilters": [
         "arm64-v8a"

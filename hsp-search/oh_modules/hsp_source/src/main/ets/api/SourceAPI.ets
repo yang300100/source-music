@@ -7,7 +7,8 @@ import {
   PlaylistInfo,
   MusicQuality,
   SourceType,
-  HotSearchItem
+  HotSearchItem,
+  LogUtils
 } from 'common'
 
 /**
@@ -29,6 +30,14 @@ export abstract class BaseSource implements SourceInstance {
   abstract getLyric(songmid: string, fullSong?: MusicItem): Promise<LyricLine[]>
   abstract getPlaylistInfo(listid: string): Promise<PlaylistInfo>
   abstract getHotSearch(): Promise<HotSearchItem[]>
+
+  /**
+   * 该音源支持解析的歌曲源列表（lx-music LxSource.sources 语义）
+   * 空数组 = 未声明/不限；非空时仅解析列表内的源
+   */
+  getSupportedSources(): string[] {
+    return []
+  }
 
   /**
    * 解析 LRC 歌词文本为 LyricLine 数组
@@ -55,7 +64,9 @@ export abstract class BaseSource implements SourceInstance {
         })
       }
     }
-    return lines.sort((a, b) => a.time - b.time)
+    const result = lines.sort((a, b) => a.time - b.time)
+    LogUtils.info(`[歌词] parseLRC: 输入${lrcText.split('\n').length}行 → 解析得${result.length}行`)
+    return result
   }
 }
 

@@ -1,0 +1,49 @@
+{
+  "shortcuts": [
+    {
+      "shortcutId": "id_search",
+      "label": "$string:shortcut_search",
+      "icon": "$media:ic_shortcut_search",
+      "wants": [
+        {
+          "bundleName": "com.yuki.source_music",
+          "moduleName": "entry",
+          "abilityName": "EntryAbility",
+          "parameters": {
+            "shortCutKey": "search"
+          }
+        }
+      ]
+    },
+    {
+      "shortcutId": "id_favorites",
+      "label": "$string:shortcut_favorites",
+      "icon": "$media:ic_shortcut_favorite",
+      "wants": [
+        {
+          "bundleName": "com.yuki.source_music",
+          "moduleName": "entry",
+          "abilityName": "EntryAbility",
+          "parameters": {
+            "shortCutKey": "favorites"
+          }
+        }
+      ]
+    },
+    {
+      "shortcutId": "id_recent",
+      "label": "$string:shortcut_recent",
+      "icon": "$media:ic_shortcut_playlist",
+      "wants": [
+        {
+          "bundleName": "com.yuki.source_music",
+          "moduleName": "entry",
+          "abilityName": "EntryAbility",
+          "parameters": {
+            "shortCutKey": "recent"
+          }
+        }
+      ]
+    }
+  ]
+}

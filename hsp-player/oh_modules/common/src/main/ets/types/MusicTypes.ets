@@ -45,6 +45,21 @@ export interface MusicItem {
   source: SourceType
   types: Record<string, MusicQualityInfo>
   _types?: Record<string, MusicQualityInfo>
+  /** 换源成功后保存的替代音源歌曲信息，下次播放同歌时优先使用 */
+  toggleMusicInfo?: ToggleMusicInfo
+}
+
+/**
+ * 换源成功后的替代音源信息（避免重复搜索换源）
+ */
+export interface ToggleMusicInfo {
+  songmid: string
+  /** 替代歌曲的真实平台，用于向解析源传递正确的 event.source。 */
+  source: SourceType
+  /** 实际提供播放地址的自定义解析源 ID；缺失时使用平台内置接口。 */
+  sourceId?: string
+  name: string
+  singer: string
 }
 
 /**

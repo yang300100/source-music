@@ -2,6 +2,12 @@ import { LogUtils, SourceInstance, SourceInfo } from 'common'
 import { JSScriptSource } from '../sources/JSScriptSource'
 
 /**
+ * 单个音源脚本初始化的最长等待时间。
+ * 部分第三方脚本会在顶层长期等待网络或进入死循环，不能让导入界面一直卡住。
+ */
+const SOURCE_INIT_TIMEOUT_MS = 15000
+
+/**
  * JS 音源沙箱（完整实现）
  *
  * 基于鸿蒙系统 JSVM-API（libjsvm.so）提供完整的 JavaScript 执行环境：
@@ -30,7 +36,7 @@ export class JSSandbox {
     LogUtils.info('JSSandbox: 加载音源脚本', sourceInfo.name)
     try {
       const source = new JSScriptSource(scriptContent, sourceInfo)
-      const ok = await source.init()
+      const ok = await JSSandbox.initWithTimeout(source, sourceInfo.name)
       if (!ok) {
         LogUtils.error('JSSandbox: 沙箱初始化失败', sourceInfo.name)
         return null
@@ -40,6 +46,37 @@ export class JSSandbox {
       LogUtils.error('JSSandbox: 创建音源失败', JSON.stringify(err))
       return null
     }
+  }
+
+  /**
+   * 为第三方脚本初始化增加总超时，并在超时后回收仍在等待的网络请求。
+   * 这里只结束本次导入等待；迟到的 Promise 结果会被忽略，避免再次改写导入状态。
+   */
+  private static async initWithTimeout(source: JSScriptSource, sourceName: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        source.abortInflightRequests()
+        source.destroy()
+        LogUtils.error(`JSSandbox: 音源初始化超时(${SOURCE_INIT_TIMEOUT_MS}ms)`, sourceName)
+        resolve(false)
+      }, SOURCE_INIT_TIMEOUT_MS)
+
+      source.init().then((ok: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(ok)
+      }).catch((err: Error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        LogUtils.error('JSSandbox: 音源初始化异常', `${sourceName}: ${err.message}`)
+        resolve(false)
+      })
+    })
   }
 
   /**

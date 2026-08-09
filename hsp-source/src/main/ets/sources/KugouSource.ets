@@ -31,7 +31,7 @@ export class KugouSource extends BaseSource {
 
   constructor() {
     super({
-      id: 'kugou',
+      id: 'kg',
       name: '酷狗音乐',
       version: '1.0.0',
       author: 'Yuki',
@@ -72,7 +72,7 @@ export class KugouSource extends BaseSource {
           singer: (item['singername'] as string) ?? '未知歌手',
           albumName: (item['album_name'] as string) ?? '',
           interval: Math.floor(Number(item['duration'] ?? 0)),
-          imgUrl: '',
+          imgUrl: this.extractCover(item),
           lyricUrl: '',
           source: SourceType.KG,
           types: types
@@ -85,20 +85,40 @@ export class KugouSource extends BaseSource {
     }
   }
 
-  /** 获取播放 URL（hash → playInfo） */
+  /** 获取播放 URL（wwwapi + kg_mid cookie，lx-music 同款；失败回退旧版 API） */
   async getMusicInfo(songmid: string, _quality: MusicQuality): Promise<MusicItem> {
     try {
-      const url = `${KugouSource.PLAY_URL}?cmd=playInfo&hash=${songmid}`
-      const data = await NetUtils.getJSON<Record<string, Object>>(url)
-      if (!data) throw new Error('获取播放信息失败')
-
-      const playUrl = (data['url'] as string) ?? ''
-      if (!playUrl) {
-        // 尝试备用字段
-        const backupUrl = (data['backup_url'] as Array<string>) ?? []
-        if (backupUrl.length > 0) {
-          throw new Error('酷狗接口未返回可用播放地址')
+      // 新版 wwwapi：需 kg_mid cookie（lx-music 酷狗源同款）
+      const mid = KugouSource.randomMid()
+      let url = `https://wwwapi.kugou.com/yy/index.php?r=play/getdata&hash=${songmid}&album_id=&mid=${mid}`
+      LogUtils.info(`[播放] 酷狗 playInfo 请求(带kg_mid): ${url}`)
+      let data = await NetUtils.getJSON<Record<string, Object>>(url, { 'Cookie': `kg_mid=${mid}` })
+      let playUrl = ''
+      if (data) {
+        const inner = data['data'] as Record<string, Object>
+        if (inner) {
+          playUrl = (inner['play_url'] as string) ?? (inner['url'] as string) ?? ''
         }
+        if (!playUrl) {
+          playUrl = (data['url'] as string) ?? ''
+        }
+      }
+      // 新版失败：回退旧版 API
+      if (!playUrl) {
+        url = `${KugouSource.PLAY_URL}?cmd=playInfo&hash=${songmid}`
+        LogUtils.info(`[播放] 酷狗 旧版API: ${url}`)
+        const oldData = await NetUtils.getJSON<Record<string, Object>>(url)
+        if (oldData) {
+          playUrl = (oldData['url'] as string) ?? ''
+          if (!playUrl) {
+            const backupUrl = (oldData['backup_url'] as Array<string>) ?? []
+            if (backupUrl.length > 0) {
+              playUrl = backupUrl[0] as string
+            }
+          }
+        }
+      }
+      if (!playUrl) {
         throw new Error('酷狗接口未返回可用播放地址')
       }
 
@@ -106,11 +126,11 @@ export class KugouSource extends BaseSource {
       types['128k'] = { url: playUrl, size: 0, br: 128000 }
       return {
         songmid: songmid,
-        name: (data['songName'] as string) ?? '',
-        singer: (data['author_name'] as string) ?? '',
-        albumName: (data['album_name'] as string) ?? '',
-        interval: Math.floor(Number(data['timeLength'] ?? 0) / 1000),
-        imgUrl: (data['imgUrl'] as string) ?? '',
+        name: (data?.['songName'] as string) ?? '',
+        singer: (data?.['author_name'] as string) ?? '',
+        albumName: (data?.['album_name'] as string) ?? '',
+        interval: Math.floor(Number(data?.['timeLength'] ?? 0) / 1000),
+        imgUrl: (data?.['imgUrl'] as string) ?? '',
         lyricUrl: '',
         source: SourceType.KG,
         types: types
@@ -118,6 +138,16 @@ export class KugouSource extends BaseSource {
     } catch (err) {
       throw new Error(`酷狗获取播放地址失败: ${JSON.stringify(err)}`)
     }
+  }
+
+  /** 生成随机 mid（lx-music 同款：40 位 hex，用作 kg_mid cookie 与 mid 参数） */
+  private static randomMid(): string {
+    const chars = '0123456789abcdef'
+    let result = ''
+    for (let i = 0; i < 40; i++) {
+      result += chars.charAt(Math.floor(Math.random() * 16))
+    }
+    return result
   }
 
   /** 获取歌词（krc.php 返回明文 LRC） */
@@ -140,5 +170,25 @@ export class KugouSource extends BaseSource {
   /** 热搜（暂不支持） */
   async getHotSearch(): Promise<HotSearchItem[]> {
     return []
+  }
+
+  /** 提取封面：优先 trans_param.union_cover，其次 album_img，最后用 hash 拼接 */
+  private extractCover(item: Record<string, Object>): string {
+    const transParam = item['trans_param'] as Record<string, Object>
+    if (transParam) {
+      const unionCover = (transParam['union_cover'] as string) ?? ''
+      if (unionCover) {
+        return unionCover.replace(/\{size\}/g, '480')
+      }
+    }
+    const albumImg = (item['album_img'] as string) ?? ''
+    if (albumImg) {
+      return albumImg.replace(/\{size\}/g, '480')
+    }
+    const hash = (item['hash'] as string) ?? ''
+    if (hash) {
+      return `https://imge.kugou.com/stdmusic/480/${hash}.jpg`
+    }
+    return ''
   }
 }

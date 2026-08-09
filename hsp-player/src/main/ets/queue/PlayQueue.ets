@@ -44,6 +44,24 @@ export class PlayQueue {
     return removed
   }
 
+  /** 移动歌曲位置（拖拽排序），并修正当前播放索引 */
+  move(from: number, to: number): void {
+    if (from < 0 || from >= this.list.length) return
+    if (to < 0 || to >= this.list.length) return
+    if (from === to) return
+    const item = this.list.splice(from, 1)[0]
+    this.list.splice(to, 0, item)
+    // 修正当前索引（移动的是当前歌曲或跨过当前歌曲时）
+    if (this.currentIndex === from) {
+      this.currentIndex = to
+    } else if (from < this.currentIndex && to >= this.currentIndex) {
+      this.currentIndex--
+    } else if (from > this.currentIndex && to <= this.currentIndex) {
+      this.currentIndex++
+    }
+    LogUtils.info(`播放队列排序: ${from} → ${to}, 当前索引=${this.currentIndex}`)
+  }
+
   /** 获取当前歌曲 */
   getCurrentSong(): MusicItem | null {
     if (this.currentIndex < 0 || this.currentIndex >= this.list.length) return null
@@ -69,6 +87,25 @@ export class PlayQueue {
           return this.list[this.currentIndex]
         }
         return null // 播放完毕
+    }
+  }
+
+  /** 获取下一首歌曲（不改变当前位置，用于预加载） */
+  peekNext(): MusicItem | null {
+    if (this.list.length === 0) return null
+    switch (this.mode) {
+      case PlayMode.LOOP_ONE:
+        return this.list[this.currentIndex]
+      case PlayMode.SHUFFLE:
+        return this.list[Math.floor(Math.random() * this.list.length)]
+      case PlayMode.LOOP_ALL:
+        return this.list[(this.currentIndex + 1) % this.list.length]
+      case PlayMode.SEQUENCE:
+      default:
+        if (this.currentIndex < this.list.length - 1) {
+          return this.list[this.currentIndex + 1]
+        }
+        return null // 队列末尾
     }
   }
 

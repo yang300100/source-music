@@ -7,7 +7,9 @@ import {
   PlayMode,
   SourceType,
   LyricLine,
-  LogUtils
+  LogUtils,
+  StorageUtils,
+  PlayCacheUtils
 } from 'common'
 import { SourceManager } from 'hsp_source'
 import { PlayQueue } from '../queue/PlayQueue'
@@ -34,6 +36,31 @@ export class PlayerEngine {
   private avPlayer: media.AVPlayer | null = null
   private progressTimer: number | null = null
   private currentAvState: string = 'idle'
+  private timeUpdateCount: number = 0
+  private playGeneration: number = 0
+  /** 播放/换源状态文本（对齐参考 onToggleSource：UI 可显示"正在换源解析..."） */
+  statusText: string = ''
+  /** 当前歌曲的失败重试次数（最多2次，参考lx-music） */
+  private retryNum: number = 0
+  /** 错误后跳下一首的定时器（防止重复触发） */
+  private errorSkipTimer: number | null = null
+  /** 加载超时定时器（25秒，参考lx-music） */
+  private loadingTimer: number | null = null
+  /** 是否已预加载下一首URL */
+  private preloadedNext: boolean = false
+  /** 定时关闭倒计时定时器 */
+  private sleepTimer: number | null = null
+  /** 定时关闭剩余秒数（0 = 未启用） */
+  sleepRemainSeconds: number = 0
+  /** 播放失败提示回调（UI 层注册，用于 Toast） */
+  onPlayError: (message: string) => void = (message: string) => {}
+  /** 保存播放进度（开启时每 10 秒持久化当前位置） */
+  savePlayProgress: boolean = false
+  /** 自动清理已播放列表（开启时播放完成自动移除该曲） */
+  autoCleanPlayed: boolean = false
+  /** 默认音质（128k / 320k / flac） */
+  defaultQuality: MusicQuality = MusicQuality.HIGH
+  private lastProgressSave: number = 0
   private static instance: PlayerEngine | null = null
 
   static getInstance(): PlayerEngine {
@@ -88,18 +115,25 @@ export class PlayerEngine {
 
     this.avPlayer.on('stateChange', (state: string) => {
       this.currentAvState = state
-      LogUtils.info(`[播放] 状态变化: ${state}`)
+      const prevStatus = this.status
+      LogUtils.info(`[AVPlayer] stateChange: ${state}, 之前status=${prevStatus}, playGen=${this.playGeneration}`)
       switch (state) {
         case 'idle':
-        case 'initialized':
           this.status = PlayerStatus.IDLE
           break
+        case 'initialized':
+          break
         case 'prepared':
-          this.status = PlayerStatus.PLAYING
+          if (this.status === PlayerStatus.BUFFERING || this.status === PlayerStatus.LOADING) {
+            LogUtils.info(`[AVPlayer] prepared时status=${this.status}，保持不变`)
+          } else {
+            LogUtils.info(`[AVPlayer] prepared时status=${this.status}(非BUFFERING)，保持不变`)
+          }
           this.startProgressTimer()
           break
         case 'playing':
           this.status = PlayerStatus.PLAYING
+          this.startProgressTimer()
           break
         case 'paused':
           this.status = PlayerStatus.PAUSED
@@ -110,8 +144,10 @@ export class PlayerEngine {
         case 'error':
           this.status = PlayerStatus.ERROR
           LogUtils.error('AVPlayer 播放出错')
+          this.handleAvError()
           break
       }
+      LogUtils.info(`[AVPlayer] stateChange后: status=${this.status}`)
     })
 
     this.avPlayer.on('durationUpdate', (duration: number) => {
@@ -121,53 +157,172 @@ export class PlayerEngine {
 
     this.avPlayer.on('timeUpdate', (time: number) => {
       this.currentProgress = time
+      this.timeUpdateCount++
+      // 前 10 次 + 之后每 10 次打一次日志
+      if (this.timeUpdateCount <= 10 || this.timeUpdateCount % 10 === 0) {
+        LogUtils.info(`[进度] timeUpdate #${this.timeUpdateCount}: ${time}ms (${(time / 1000).toFixed(1)}s), status=${this.status}, avState=${this.currentAvState}`)
+      }
+      // 预加载下一首：距结尾<10秒且未预加载过（参考lx-music preloadNextMusic）
+      if (!this.preloadedNext && this.duration > 0 && this.duration - time < 10000) {
+        this.preloadedNext = true
+        this.preloadNextSong()
+      }
     })
 
     this.avPlayer.on('error', (err: Error) => {
       LogUtils.error('AVPlayer 错误', JSON.stringify(err))
       this.status = PlayerStatus.ERROR
+      this.stopLoadingTimer()
+      // 播放器解码失败：刷新URL重试（最多2次），仍失败则5秒后跳下一首（参考lx-music）
+      if (this.currentSong && this.retryNum < 2 && this.errorSkipTimer === null) {
+        this.retryNum++
+        LogUtils.info(`[播放] 解码错误，刷新URL重试 ${this.retryNum}/2: ${this.currentSong.name} - ${this.currentSong.singer}`)
+        const song = this.currentSong
+        SourceManager.getInstance().clearPlayUrlCache(song.songmid, song.source)
+        this.play(song, true)
+      } else {
+        LogUtils.info('[播放] 重试次数已用完或已在跳转中，5秒后跳下一首')
+        this.scheduleErrorSkip()
+      }
     })
   }
 
-  /** 播放指定歌曲 */
-  async play(song: MusicItem): Promise<void> {
+  /** 播放指定歌曲（isRefresh=true 时跳过缓存，用于失败重试） */
+  async play(song: MusicItem, isRefresh: boolean = false): Promise<void> {
     if (!this.avPlayer) {
       LogUtils.error('AVPlayer 未初始化')
       return
     }
 
+    if (!isRefresh) {
+      // 新歌开始播放：重置重试计数和预加载标志
+      this.retryNum = 0
+      this.preloadedNext = false
+    }
+    // 取消挂起的跳下一首定时器
+    if (this.errorSkipTimer !== null) {
+      clearTimeout(this.errorSkipTimer)
+      this.errorSkipTimer = null
+    }
+
+    this.playGeneration++
+    const myGen = this.playGeneration
+
+    // 立即暂停旧歌（新歌 URL 解析期间旧歌不再继续响；不判断avState，任何状态都尝试）
+    if (!isRefresh) {
+      try {
+        await this.avPlayer.pause()
+        LogUtils.info('[播放] 已暂停旧歌，等待新歌URL')
+      } catch (pauseErr) {
+        LogUtils.warn('[播放] 暂停旧歌异常(可能无旧歌在播)', JSON.stringify(pauseErr))
+      }
+    }
+
     this.status = PlayerStatus.LOADING
     this.currentSong = song
-    LogUtils.info(`[播放] 开始: ${song.name} - ${song.singer} (source=${song.source})`)
+    this.lyrics = []
+    this.currentProgress = 0
+    this.timeUpdateCount = 0
+    LogUtils.info(`[播放] 开始(gen=${myGen}, refresh=${isRefresh}): ${song.name} - ${song.singer} (source=${song.source}), imgUrl="${song.imgUrl ? song.imgUrl.substring(0, 60) : '(空)'}"`)
+
+    // 加载超时定时器：25秒内未开始播放则刷新URL重试，二次超时跳下一首
+    this.startLoadingTimer()
 
     try {
-      // 从音源获取播放 URL（支持换源回退）
       const sourceMgr = SourceManager.getInstance()
-      LogUtils.info(`[播放] 请求播放 URL: songmid=${song.songmid}`)
-      const musicInfo = await sourceMgr.getMusicInfoWithFallback(song.songmid, song.source, MusicQuality.HIGH, song)
+      // 音质降级链（lx-music 逻辑）：高音质获取失败自动降级到低音质
+      const qualities = this.buildQualityChain(this.defaultQuality)
+      let musicInfo: MusicItem | null = null
+      for (let qi = 0; qi < qualities.length; qi++) {
+        if (myGen !== this.playGeneration) {
+          LogUtils.info(`[播放] gen=${myGen} 音质降级中已过期，跳过`)
+          return
+        }
+        LogUtils.info(`[播放] 请求播放 URL(songmid=${song.songmid}, 音质=${qualities[qi]}, ${qi + 1}/${qualities.length})`)
+        musicInfo = await sourceMgr.getMusicInfoWithFallback(
+          song.songmid, song.source, qualities[qi], song, isRefresh,
+          (text: string) => {
+            this.statusText = text
+            LogUtils.info(`[播放] 换源状态: ${text}`)
+          })
+        if (musicInfo) break
+      }
+      if (myGen !== this.playGeneration) {
+        LogUtils.info(`[播放] gen=${myGen} 已过期(当前=${this.playGeneration})，跳过`)
+        return
+      }
       if (!musicInfo) {
-        LogUtils.error('无法获取播放地址')
+        // 对齐参考 getMusicPlayUrl(isRetryed)：整体失败后延迟重试一次
+        // （服务临时不可用如 onrender 冷启动 30-60s，延迟后可能恢复）
+        LogUtils.warn('[播放] 首次获取失败，3秒后整体重试一次')
+        await new Promise<void>((resolve) => setTimeout(resolve, 3000))
+        if (myGen !== this.playGeneration) {
+          LogUtils.info(`[播放] gen=${myGen} 重试前已过期，跳过`)
+          return
+        }
+        for (let qi = 0; qi < qualities.length; qi++) {
+          if (myGen !== this.playGeneration) {
+            LogUtils.info(`[播放] gen=${myGen} 重试音质降级中已过期，跳过`)
+            return
+          }
+          LogUtils.info(`[播放] 重试请求播放 URL(songmid=${song.songmid}, 音质=${qualities[qi]}, ${qi + 1}/${qualities.length})`)
+          musicInfo = await sourceMgr.getMusicInfoWithFallback(song.songmid, song.source, qualities[qi], song, isRefresh)
+          if (musicInfo) break
+        }
+      }
+      if (myGen !== this.playGeneration) {
+        LogUtils.info(`[播放] gen=${myGen} 已过期(当前=${this.playGeneration})，跳过`)
+        return
+      }
+      if (!musicInfo) {
+        LogUtils.error('无法获取播放地址，3秒后跳下一首')
         this.status = PlayerStatus.ERROR
+        this.resetAvPlayer()
+        this.stopLoadingTimer()
+        if (this.onPlayError) {
+          this.onPlayError('未找到可播放的音频，自动切换下一首')
+        }
+        this.scheduleErrorSkip()
         return
       }
       LogUtils.info(`[播放] 获取到 URL 信息, types=${JSON.stringify(Object.keys(musicInfo.types))}`)
 
-      // 选最高可用音质
       const qualityKey = Object.keys(musicInfo.types)[0]
       const playUrl = musicInfo.types[qualityKey]?.url
       if (!playUrl) {
-        LogUtils.error('无可用的播放 URL')
+        LogUtils.error('无可用的播放 URL，3秒后跳下一首')
         this.status = PlayerStatus.ERROR
+        this.resetAvPlayer()
+        this.stopLoadingTimer()
+        if (this.onPlayError) {
+          this.onPlayError('未找到可播放的音频，自动切换下一首')
+        }
+        this.scheduleErrorSkip()
         return
       }
       LogUtils.info(`[播放] URL: ${playUrl.substring(0, 150)}`)
 
-      // 重置播放器
-      LogUtils.info('[播放] 开始 reset')
-      await this.avPlayer.reset()
-      LogUtils.info('[播放] reset 完成')
+      const playInfoImgUrl = musicInfo.imgUrl ?? ''
+      if (playInfoImgUrl && playInfoImgUrl.length > 0) {
+        this.currentSong!.imgUrl = playInfoImgUrl
+      }
 
-      // 判断是本地文件还是网络流
+      LogUtils.info(`[播放] 开始 reset (当前avState=${this.currentAvState})`)
+      if (this.currentAvState === 'idle') {
+        LogUtils.info('[播放] avState=idle，跳过reset')
+      } else {
+        try {
+          await this.avPlayer.reset()
+        } catch (resetErr) {
+          LogUtils.warn('[播放] reset异常，尝试继续', JSON.stringify(resetErr))
+        }
+      }
+      if (myGen !== this.playGeneration) {
+        LogUtils.info(`[播放] gen=${myGen} reset后已过期，跳过`)
+        return
+      }
+      LogUtils.info(`[播放] reset 完成, avState=${this.currentAvState}`)
+
       if (playUrl.startsWith('file://')) {
         const filePath = playUrl.replace('file://', '')
         const fdFile = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
@@ -181,39 +336,103 @@ export class PlayerEngine {
       } else {
         LogUtils.info('[播放] 设置 URL 数据源')
         this.avPlayer.url = playUrl
-        // 等待数据源生效（状态变为 initialized）——url 设置是异步的，
-        // 立即 prepare 会在错误状态挂起！
         const stateDeadline = Date.now() + 8000
         while (this.currentAvState !== 'initialized' && Date.now() < stateDeadline) {
           await new Promise<void>((resolve) => setTimeout(resolve, 50))
+          if (myGen !== this.playGeneration) {
+            LogUtils.info(`[播放] gen=${myGen} 等待URL时已过期，跳过`)
+            return
+          }
         }
         LogUtils.info(`[播放] 数据源状态: ${this.currentAvState}`)
         if (this.currentAvState !== 'initialized') {
           LogUtils.error(`URL 设置超时，状态: ${this.currentAvState}`)
           this.status = PlayerStatus.ERROR
+          this.stopLoadingTimer()
+          if (this.onPlayError) {
+            this.onPlayError('播放地址加载超时，自动切换下一首')
+          }
+          this.scheduleErrorSkip()
           return
         }
       }
 
       this.status = PlayerStatus.BUFFERING
-      LogUtils.info('[播放] 开始 prepare')
+      LogUtils.info(`[播放] gen=${myGen} 开始 prepare, avState=${this.currentAvState}`)
       await this.avPlayer.prepare()
-      LogUtils.info('[播放] prepare 完成')
+      if (myGen !== this.playGeneration) {
+        LogUtils.info(`[播放] gen=${myGen} prepare后已过期，跳过`)
+        return
+      }
+      LogUtils.info(`[播放] gen=${myGen} prepare 完成, avState=${this.currentAvState}, status=${this.status}`)
       await this.avPlayer.play()
-      LogUtils.info('[播放] play() 调用完成')
+      if (myGen !== this.playGeneration) {
+        LogUtils.info(`[播放] gen=${myGen} avPlayer.play()后已过期，跳过`)
+        return
+      }
+      LogUtils.info(`[播放] gen=${myGen} avPlayer.play() 完成, avState=${this.currentAvState}, status=${this.status}`)
+      // 播放已开始，取消加载超时定时器
+      this.stopLoadingTimer()
 
-      // 异步获取歌词
-      this.fetchLyrics(song)
+      // 恢复上次播放进度（开启时且非刷新重试）
+      if (this.savePlayProgress && !isRefresh) {
+        this.restorePlayProgress(song, myGen)
+      }
 
-      // 更新媒体会话（通知栏/锁屏展示）
+      this.fetchLyrics(song, myGen)
+
+      // 后台缓存播放过的音频（不阻塞播放；已缓存则刷新时间）
+      if (playUrl) {
+        PlayCacheUtils.cacheSong(song, playUrl).catch(() => {})
+      }
+
       this.mediaSession.updateMetadata(song)
       this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, 0, this.duration)
       this.mediaSession.activate()
 
       LogUtils.info(`开始播放: ${song.name} - ${song.singer}`)
+
+      const lastSong: Record<string, string | number> = {
+        'songmid': song.songmid,
+        'source': String(song.source),
+        'name': song.name,
+        'singer': song.singer,
+        'albumName': song.albumName,
+        'interval': song.interval,
+        'imgUrl': song.imgUrl
+      }
+      LogUtils.info(`[自动播放] 保存上次播放: ${song.name} - ${song.singer}, hasImg=${!!song.imgUrl}`)
+      StorageUtils.putObject('last_played_song', lastSong)
+
+      // 记录播放历史（最多 50 首，按 songmid+source 去重，最新在前）
+      this.recordPlayHistory(song)
+      // 持久化播放队列（重启后恢复）
+      this.saveQueueState()
     } catch (err) {
+      if (myGen !== this.playGeneration) {
+        LogUtils.info(`[播放] gen=${myGen} 出错但已过期，忽略`)
+        return
+      }
       LogUtils.error('播放失败', JSON.stringify(err))
+      this.stopLoadingTimer()
       this.status = PlayerStatus.ERROR
+      this.resetAvPlayer()
+      this.scheduleErrorSkip()
+    }
+  }
+
+  /** 播放中途出错：清除 URL 缓存并标记主源失败（跳过原源），刷新重试一次，再失败跳下一首 */
+  private handleAvError(): void {
+    if (this.retryNum < 1 && this.currentSong) {
+      this.retryNum++
+      const song = this.currentSong
+      LogUtils.info(`[播放] 播放出错(${this.retryNum})，清除 URL 缓存并标记主源失败，刷新重试`)
+      SourceManager.getInstance().clearPlayUrlCache(song.songmid, song.source)
+      SourceManager.getInstance().markPrimaryFailed(song.songmid, song.source)
+      this.play(song, true)
+    } else {
+      LogUtils.info('[播放] 刷新重试仍失败，跳下一首')
+      this.scheduleErrorSkip()
     }
   }
 
@@ -225,15 +444,56 @@ export class PlayerEngine {
     }
   }
 
+  /** 音质降级链（lx-music 逻辑）：从用户设置音质降级到最低音质 */
+  private buildQualityChain(preferred: MusicQuality): MusicQuality[] {
+    const order: MusicQuality[] = [
+      MusicQuality.HIRES, MusicQuality.LOSSLESS, MusicQuality.HIGH, MusicQuality.LOW
+    ]
+    const start = order.indexOf(preferred)
+    const chain: MusicQuality[] = []
+    for (let i = start; i < order.length; i++) {
+      chain.push(order[i])
+    }
+    if (chain.length === 0) chain.push(MusicQuality.LOW)
+    return chain
+  }
+
   /** 暂停/继续切换 */
   async togglePlay(): Promise<void> {
     if (!this.avPlayer) return
+    LogUtils.info(`[togglePlay] status=${this.status}, avState=${this.currentAvState}, playGen=${this.playGeneration}`)
     if (this.status === PlayerStatus.PLAYING) {
-      await this.avPlayer.pause()
+      LogUtils.info('[togglePlay] → 暂停')
+      try {
+        await this.avPlayer.pause()
+        LogUtils.info('[togglePlay] pause() 完成')
+      } catch (err) {
+        LogUtils.warn('[togglePlay] pause() 异常', JSON.stringify(err))
+      }
       this.mediaSession.updatePlaybackState(PlayerStatus.PAUSED, this.currentProgress, this.duration)
     } else if (this.status === PlayerStatus.PAUSED) {
-      await this.avPlayer.play()
+      LogUtils.info('[togglePlay] → 恢复播放')
+      try {
+        await this.avPlayer.play()
+        LogUtils.info('[togglePlay] play() 完成')
+      } catch (err) {
+        LogUtils.warn('[togglePlay] play() 异常', JSON.stringify(err))
+      }
       this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, this.currentProgress, this.duration)
+    } else if (this.status === PlayerStatus.LOADING || this.status === PlayerStatus.BUFFERING) {
+      // 加载/缓冲中：暂停键取消当前加载并彻底停止 avPlayer（任何状态都可用）
+      LogUtils.info(`[togglePlay] status=${this.status} → 取消加载并停止`)
+      this.playGeneration++
+      this.stopLoadingTimer()
+      this.stopProgressTimer()
+      await this.resetAvPlayer()
+      this.status = PlayerStatus.IDLE
+      this.mediaSession.updatePlaybackState(PlayerStatus.IDLE, 0, this.duration)
+    } else if (this.status === PlayerStatus.ERROR || this.status === PlayerStatus.IDLE) {
+      LogUtils.info(`[togglePlay] status=${this.status} → 尝试重播`)
+      if (this.currentSong) {
+        this.play(this.currentSong)
+      }
     }
   }
 
@@ -262,13 +522,26 @@ export class PlayerEngine {
     try {
       // 记录 seek 前状态，seek 后恢复播放
       const wasPlaying = this.status === PlayerStatus.PLAYING
+      LogUtils.info(`[seek] 开始 seek → ${timeMs}ms, seek前 status=${this.status}, avState=${this.currentAvState}, wasPlaying=${wasPlaying}`)
       await this.avPlayer.seek(timeMs)
+      LogUtils.info(`[seek] seek 完成, 此时 status=${this.status}, avState=${this.currentAvState}`)
       this.currentProgress = timeMs
-      if (wasPlaying && this.status !== PlayerStatus.PLAYING) {
-        await this.avPlayer.play()
-        this.status = PlayerStatus.PLAYING
+      // seek 后 AVPlayer 通常停在 paused，需手动恢复
+      // 不依赖 this.status 判断——event 回调时序不确定，可能已误设为 PLAYING
+      if (wasPlaying) {
+        LogUtils.info(`[seek] wasPlaying=true, 尝试恢复播放...`)
+        try {
+          await this.avPlayer.play()
+          LogUtils.info(`[seek] play() 调用完成, status=${this.status}, avState=${this.currentAvState}`)
+        } catch (playErr) {
+          // 已在播放中时会抛异常，忽略即可
+          LogUtils.warn('[seek] play() 抛异常（可能已在播）', JSON.stringify(playErr))
+        }
+        // 更新媒体会话
+        this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, this.currentProgress, this.duration)
+      } else {
+        LogUtils.info(`[seek] wasPlaying=false, 不恢复播放`)
       }
-      LogUtils.info(`[播放] seek 到 ${timeMs}ms`)
     } catch (err) {
       LogUtils.error('seek 失败', JSON.stringify(err))
     }
@@ -283,24 +556,50 @@ export class PlayerEngine {
   private async handleCompletion(): Promise<void> {
     LogUtils.info('歌曲播放完毕')
     this.stopProgressTimer()
+    // 自动清理：先记下当前歌曲，next() 后仅当真正切换到其他歌曲时才移除已播歌曲
+    // （单曲循环 / 随机命中同一首时 next() 不会前进，不能清理，否则会删掉正在播放的歌）
+    const playedIndex = this.queue.currentIndex
+    const playedSong = this.queue.getCurrentSong()
     await this.next()
+    if (this.autoCleanPlayed && playedIndex >= 0) {
+      const nowSong = this.queue.getCurrentSong()
+      if (nowSong && playedSong && nowSong.songmid === playedSong.songmid) {
+        LogUtils.info('[自动清理] 单曲循环/随机同首，跳过清理')
+        return
+      }
+      const removed = this.queue.removeAt(playedIndex)
+      if (removed) {
+        LogUtils.info(`[自动清理] 已移除已播歌曲: ${removed.name}`)
+      }
+    }
   }
 
-  /** 异步获取歌词 */
-  private async fetchLyrics(song: MusicItem): Promise<void> {
+  /** 异步获取歌词（带换源） */
+  private async fetchLyrics(song: MusicItem, gen: number): Promise<void> {
     try {
       const sourceMgr = SourceManager.getInstance()
-      const source = sourceMgr.getSourceById(String(song.source))
-      if (source) {
-        this.lyrics = await source.getLyric(song.songmid, song)
+      const sourceId = String(song.source)
+      LogUtils.info(`[歌词] 尝试获取(gen=${gen}): songmid=${song.songmid}, source=${sourceId}`)
+      const startMs = Date.now()
+      const result = await sourceMgr.getLyricWithFallback(song.songmid, sourceId, song)
+      if (gen !== this.playGeneration) {
+        LogUtils.info(`[歌词] gen=${gen}已过期(当前=${this.playGeneration})，丢弃结果`)
+        return
       }
+      this.lyrics = result
+      const elapsed = Date.now() - startMs
+      LogUtils.info(`[歌词] 获取完成(gen=${gen}): ${this.lyrics.length} 行, 耗时${elapsed}ms`)
     } catch (err) {
-      LogUtils.warn('歌词获取失败', JSON.stringify(err))
+      if (gen !== this.playGeneration) {
+        LogUtils.info(`[歌词] gen=${gen}出错但已过期，忽略`)
+        return
+      }
+      LogUtils.warn(`[歌词] 异常: ${JSON.stringify(err)}`)
       this.lyrics = []
     }
   }
 
-  /** 启动进度同步定时器（真实进度由 timeUpdate 回调驱动，这里只做媒体会话同步） */
+  /** 启动进度同步定时器（真实进度由 timeUpdate 回调驱动，这里只做媒体会话同步 + 进度保存） */
   private startProgressTimer(): void {
     this.stopProgressTimer()
     this.progressTimer = setInterval(() => {
@@ -309,8 +608,74 @@ export class PlayerEngine {
         if (this.currentProgress % 5000 < 1000) {
           this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, this.currentProgress, this.duration)
         }
+        // 每 10 秒保存一次播放进度（开启时）
+        if (this.savePlayProgress && this.currentSong && Date.now() - this.lastProgressSave > 10000) {
+          this.lastProgressSave = Date.now()
+          this.saveProgressNow(this.currentSong)
+        }
       }
     }, 1000)
+  }
+
+  /** 立即保存当前播放进度（按 songmid+source 记录） */
+  private saveProgressNow(song: MusicItem): void {
+    if (this.duration <= 0 || this.currentProgress < 5000) return
+    const key = `${song.source}_${song.songmid}`
+    const saved: Record<string, Object> = {
+      'progress': this.currentProgress,
+      'duration': this.duration,
+      'updatedAt': Date.now()
+    }
+    StorageUtils.getObject<Record<string, Object>>('play_progress', {}).then((map: Record<string, Object>) => {
+      map[key] = saved
+      StorageUtils.putObject('play_progress', map).catch(() => {})
+    }).catch(() => {})
+  }
+
+  /** 恢复上次播放进度（仅当进度>5秒且距上次播放<24小时，避免误恢复） */
+  private restorePlayProgress(song: MusicItem, gen: number): void {
+    const key = `${song.source}_${song.songmid}`
+    StorageUtils.getObject<Record<string, Object>>('play_progress', {}).then((map: Record<string, Object>) => {
+      const entry = map[key] as Record<string, Object>
+      if (!entry) return
+      const progress = Number(entry['progress'] ?? 0)
+      const updatedAt = Number(entry['updatedAt'] ?? 0)
+      const duration = Number(entry['duration'] ?? 0)
+      const isFresh = Date.now() - updatedAt < 24 * 3600 * 1000
+      const isSignificant = progress > 5000 && duration > 0 && progress < duration - 3000
+      if (isFresh && isSignificant) {
+        if (gen !== this.playGeneration) return
+        LogUtils.info(`[进度] 恢复上次播放位置: ${song.name} ${(progress / 1000).toFixed(1)}s / ${(duration / 1000).toFixed(1)}s`)
+        // 延迟 400ms 再 seek，避免与 play() 的状态机竞争导致 seek 被覆盖
+        setTimeout(() => {
+          if (gen !== this.playGeneration) return
+          try {
+            this.avPlayer?.seek(progress)
+            this.currentProgress = progress
+            this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, progress, this.duration)
+            LogUtils.info(`[进度] seek 完成: ${(progress / 1000).toFixed(1)}s`)
+          } catch (err) {
+            LogUtils.warn(`[进度] seek 异常: ${JSON.stringify(err)}`)
+          }
+        }, 400)
+      }
+    }).catch(() => {})
+  }
+
+  /** 清除指定歌曲的播放进度记录 */
+  clearPlayProgress(song: MusicItem): void {
+    const key = `${song.source}_${song.songmid}`
+    StorageUtils.getObject<Record<string, Object>>('play_progress', {}).then((map: Record<string, Object>) => {
+      if (map[key]) {
+        const remaining: Record<string, Object> = {}
+        for (const k of Object.keys(map)) {
+          if (k !== key) {
+            remaining[k] = map[k]
+          }
+        }
+        StorageUtils.putObject('play_progress', remaining).catch(() => {})
+      }
+    }).catch(() => {})
   }
 
   /** 停止进度更新定时器 */
@@ -321,9 +686,173 @@ export class PlayerEngine {
     }
   }
 
+  /** 启动加载超时定时器（25秒，参考lx-music） */
+  private startLoadingTimer(): void {
+    this.stopLoadingTimer()
+    this.loadingTimer = setTimeout(() => {
+      this.loadingTimer = null
+      if (this.status !== PlayerStatus.LOADING && this.status !== PlayerStatus.BUFFERING) {
+        return // 已开始播放或已结束
+      }
+      if (this.currentSong && this.retryNum < 2) {
+        this.retryNum++
+        LogUtils.info(`[播放] 加载超时(25s)，刷新URL重试 ${this.retryNum}/2: ${this.currentSong.name}`)
+        const song = this.currentSong
+        SourceManager.getInstance().clearPlayUrlCache(song.songmid, song.source)
+        this.play(song, true)
+      } else {
+        LogUtils.info('[播放] 加载超时且重试次数已用完，跳下一首')
+        this.status = PlayerStatus.ERROR
+        this.resetAvPlayer()
+        this.scheduleErrorSkip()
+      }
+    }, 25000)
+  }
+
+  /** 停止加载超时定时器 */
+  private stopLoadingTimer(): void {
+    if (this.loadingTimer !== null) {
+      clearTimeout(this.loadingTimer)
+      this.loadingTimer = null
+    }
+  }
+
+  /** 调度跳下一首（3秒后，防止重复触发） */
+  private scheduleErrorSkip(): void {
+    if (this.errorSkipTimer !== null) return
+    this.errorSkipTimer = setTimeout(() => {
+      this.errorSkipTimer = null
+      // 注意：resetAvPlayer 已把 status 置为 IDLE，这里不能依赖 status===ERROR 判断
+      LogUtils.info('[播放] 播放失败，自动跳下一首')
+      this.next()
+    }, 3000)
+  }
+
+  /** 预加载下一首URL到缓存（不播放，参考lx-music preloadNextMusic） */
+  private async preloadNextSong(): Promise<void> {
+    const nextSong = this.queue.peekNext()
+    if (!nextSong || !nextSong.name) {
+      LogUtils.info('[预加载] 无下一首，跳过')
+      return
+    }
+    LogUtils.info(`[预加载] 预加载下一首: ${nextSong.name} - ${nextSong.singer} (source=${nextSong.source})`)
+    try {
+      const sourceMgr = SourceManager.getInstance()
+      await sourceMgr.getMusicInfoWithFallback(nextSong.songmid, nextSong.source, this.defaultQuality, nextSong)
+      LogUtils.info(`[预加载] 下一首URL缓存完成: ${nextSong.name}`)
+    } catch (err) {
+      LogUtils.warn(`[预加载] 失败: ${JSON.stringify(err)}`)
+    }
+  }
+
+  /** 记录播放历史（最多 50 首，songmid+source 去重，最新在前） */
+  private recordPlayHistory(song: MusicItem): void {
+    StorageUtils.getObject<MusicItem[]>('play_history', []).then((history: MusicItem[]) => {
+      const key = `${song.source}_${song.songmid}`
+      const filtered = history.filter(h => `${h.source}_${h.songmid}` !== key)
+      filtered.unshift(song)
+      const trimmed = filtered.slice(0, 50)
+      StorageUtils.putObject('play_history', trimmed).catch(() => {})
+      LogUtils.info(`[历史] 记录播放: ${song.name} - ${song.singer}, 共 ${trimmed.length} 条`)
+    }).catch(() => {})
+  }
+
+  /** 获取播放历史（最新在前） */
+  async getPlayHistory(): Promise<MusicItem[]> {
+    return await StorageUtils.getObject<MusicItem[]>('play_history', [])
+  }
+
+  /** 持久化播放队列（歌曲列表 + 当前索引 + 播放模式），重启后恢复 */
+  saveQueueState(): void {
+    const state: Record<string, Object> = {
+      'songs': this.queue.list,
+      'index': this.queue.currentIndex,
+      'mode': String(this.queue.mode)
+    }
+    StorageUtils.putObject('play_queue_state', state).catch(() => {})
+  }
+
+  /** 恢复播放队列（应用启动时调用），返回是否恢复成功 */
+  async restoreQueueState(): Promise<boolean> {
+    try {
+      const state = await StorageUtils.getObject<Record<string, Object>>('play_queue_state', {})
+      const songs = state['songs'] as MusicItem[]
+      if (!songs || songs.length === 0) return false
+      const index = Number(state['index'] ?? 0)
+      const modeStr = state['mode'] as string
+      // 恢复队列与播放模式
+      this.queue.list = [...songs]
+      this.queue.currentIndex = index >= 0 && index < songs.length ? index : 0
+      if (modeStr === 'loopOne') {
+        this.queue.mode = PlayMode.LOOP_ONE
+      } else if (modeStr === 'loopAll') {
+        this.queue.mode = PlayMode.LOOP_ALL
+      } else if (modeStr === 'shuffle') {
+        this.queue.mode = PlayMode.SHUFFLE
+      } else {
+        this.queue.mode = PlayMode.SEQUENCE
+      }
+      LogUtils.info(`[队列] 恢复播放队列: ${songs.length} 首, 当前第 ${this.queue.currentIndex + 1} 首`)
+      return true
+    } catch (err) {
+      LogUtils.warn(`[队列] 恢复失败: ${JSON.stringify(err)}`)
+      return false
+    }
+  }
+
+  /** 设置定时关闭（分钟），到点自动暂停播放；minutes<=0 表示取消 */
+  setSleepTimer(minutes: number): void {
+    this.cancelSleepTimer()
+    if (minutes <= 0) {
+      LogUtils.info('[定时关闭] 已取消')
+      return
+    }
+    this.sleepRemainSeconds = minutes * 60
+    this.sleepTimer = setInterval(() => {
+      this.sleepRemainSeconds--
+      if (this.sleepRemainSeconds <= 0) {
+        this.cancelSleepTimer()
+        LogUtils.info('[定时关闭] 时间到，暂停播放')
+        if (this.status === PlayerStatus.PLAYING) {
+          this.togglePlay()
+        }
+      }
+    }, 1000)
+    LogUtils.info(`[定时关闭] 已设置 ${minutes} 分钟`)
+  }
+
+  /** 取消定时关闭 */
+  cancelSleepTimer(): void {
+    if (this.sleepTimer !== null) {
+      clearInterval(this.sleepTimer)
+      this.sleepTimer = null
+    }
+    this.sleepRemainSeconds = 0
+  }
+
+  /** 安全重置 AVPlayer（失败时也设为 IDLE） */
+  private async resetAvPlayer(): Promise<void> {    if (!this.avPlayer) return
+    try {
+      if (this.currentAvState !== 'idle') {
+        await this.avPlayer.reset()
+        LogUtils.info('[resetAvPlayer] reset 完成')
+      }
+    } catch (err) {
+      LogUtils.warn('[resetAvPlayer] reset 异常', JSON.stringify(err))
+      this.currentAvState = 'idle'
+    }
+    this.status = PlayerStatus.IDLE
+  }
+
   /** 释放资源 */
   async release(): Promise<void> {
     this.stopProgressTimer()
+    this.stopLoadingTimer()
+    this.cancelSleepTimer()
+    if (this.errorSkipTimer !== null) {
+      clearTimeout(this.errorSkipTimer)
+      this.errorSkipTimer = null
+    }
     await this.mediaSession.destroy()
     if (this.avPlayer) {
       await this.avPlayer.release()

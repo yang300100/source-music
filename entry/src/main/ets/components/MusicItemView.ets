@@ -1,89 +1,186 @@
-import { MusicItem, LocalPlaylist } from 'common'
+import { MusicItem, LocalPlaylist, SourceType, PlayerStatus, SourceInstance, LogUtils } from 'common'
 import { PlaylistManager } from 'hsp_playlist'
 import { PlayerEngine } from 'hsp_player'
+import { SourceManager } from 'hsp_source'
+import { PlaylistNameDialog } from './PlaylistNameDialog'
+import { SourcePickerDialog } from './common/SourcePickerDialog'
 
-/**
- * 歌曲列表项组件 — 显示歌曲信息 + 音源标签，点击播放
- * 支持整列表入队（切歌）和添加到歌单
- */
 @Component
 export struct MusicItemView {
+  @StorageLink('themeIsDark') isDark: boolean = true
   @Prop song: MusicItem
   @Prop showSource: boolean = true
-  // 传入整个播放列表（搜索结果/歌单），点击时整列表入队，支持切歌
   @Prop queueSongs: MusicItem[] = []
   @Prop showAddButton: boolean = false
+  private sourcePickerController: CustomDialogController | null = null
+  private nameDialog: CustomDialogController = new CustomDialogController({
+    builder: PlaylistNameDialog({
+      placeholder: '请输入歌单名称',
+      onConfirm: (name: string) => {
+        PlaylistManager.getInstance().create(name, '').then((pl: LocalPlaylist) => {
+          PlaylistManager.getInstance().addSongs(pl.id, [this.song])
+          this.showToast(`已创建歌单「${name}」并添加`)
+        })
+      }
+    }),
+    autoCancel: true,
+    alignment: DialogAlignment.Center,
+    customStyle: true
+  })
+
+  private get primaryText(): ResourceColor { return this.isDark ? '#e8e0f8' : '#1a1525' }
+  private get secondaryText(): ResourceColor { return this.isDark ? '#7a6f98' : '#6b6088' }
+  private get dimText(): ResourceColor { return this.isDark ? '#a090c0' : '#7a6f98' }
+  private get cardBg(): ResourceColor { return this.isDark ? '#30181525' : '#90ffffff' }
+  private get placeholderBg(): ResourceColor { return this.isDark ? '#60181525' : '#60e0d8ea' }
 
   build() {
     Row({ space: 12 }) {
+      if (this.song.imgUrl) {
+        Image(this.song.imgUrl)
+          .width(44).height(44).borderRadius(10)
+          .objectFit(ImageFit.Cover).alt($r('app.media.startIcon'))
+          .interpolation(ImageInterpolation.Low)
+      } else {
+        Stack() {
+          Image($r('app.media.startIcon'))
+            .width(44).height(44).borderRadius(10)
+            .objectFit(ImageFit.Cover).opacity(0.2)
+        }
+        .width(44).height(44).borderRadius(10)
+        .backgroundColor(this.placeholderBg)
+      }
+
       Column({ space: 2 }) {
         Text(this.song.name)
-          .fontSize(15)
-          .fontColor('#cdd6f4')
-          .maxLines(1)
+          .fontSize(15).fontColor(this.primaryText).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-
         Text(`${this.song.singer} · ${this.song.albumName}`)
-          .fontSize(12)
-          .fontColor('#6c7086')
-          .maxLines(1)
+          .fontSize(12).fontColor(this.secondaryText).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       .layoutWeight(1)
 
       if (this.showSource) {
-        Text(this.song.source)
-          .fontSize(11)
-          .fontColor('#89b4fa')
-          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-          .backgroundColor('#45475a')
-          .borderRadius(4)
+        Text(this.getSourceLabel(this.song.source))
+          .fontSize(11).fontColor('#b388ff')
+          .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+          .backgroundColor('#20b388ff')
+          .borderRadius(6)
+          .onClick(() => { this.openSourcePicker() })
       }
 
-      // 添加到歌单按钮（明显的入口）
       if (this.showAddButton) {
-        Text('➕')
-          .fontSize(18)
-          .padding({ left: 8, right: 4 })
+        Text('+')
+          .fontSize(18).fontColor('#b388ff')
+          .width(28).height(28).textAlign(TextAlign.Center)
+          .borderRadius(14).backgroundColor('#20b388ff')
           .onClick(() => { this.addToPlaylist() })
       }
 
       Text(this.formatDuration(this.song.interval))
-        .fontSize(12)
-        .fontColor('#585b70')
+        .fontSize(12).fontColor(this.dimText)
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+    .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    .backgroundColor(this.cardBg)
+    .borderRadius(12)
     .onClick(() => {
       const player = PlayerEngine.getInstance()
-      // 有列表则整列表入队（支持上一首/下一首），否则单曲
       if (this.queueSongs && this.queueSongs.length > 0) {
-        const index = this.queueSongs.indexOf(this.song)
+        let index = -1
+        for (let i = 0; i < this.queueSongs.length; i++) {
+          if (this.queueSongs[i].songmid === this.song.songmid && this.queueSongs[i].source === this.song.source) {
+            index = i
+            break
+          }
+        }
         player.queue.replaceList(this.queueSongs, index >= 0 ? index : 0)
       } else {
         player.queue.replaceList([this.song])
+      }
+      // 只在重复点击同一首歌（正在加载中）时忽略；点击其他歌曲应允许切换
+      if (player.status === PlayerStatus.LOADING || player.status === PlayerStatus.BUFFERING) {
+        const cur = player.currentSong
+        if (cur && cur.songmid === this.song.songmid && cur.source === this.song.source) {
+          LogUtils.info('[MusicItemView] 同一首歌加载中，忽略重复点击')
+          return
+        }
+        LogUtils.info('[MusicItemView] 点击不同歌曲，允许切换播放')
       }
       player.play(this.song)
     })
   }
 
-  /** 添加到歌单（弹窗选择） */
-  private addToPlaylist(): void {
-    const playlists = PlaylistManager.getInstance().getAll()
-    if (playlists.length === 0) {
-      // 无歌单时自动创建并添加
-      PlaylistManager.getInstance().create('我的歌单', '自动创建').then((pl: LocalPlaylist) => {
-        PlaylistManager.getInstance().addSongs(pl.id, [this.song])
-        this.showToast('已创建歌单并添加')
+  /** 打开"选择搜索源"弹窗（手动换源：列出全部导入音源，lx-music 风格） */
+  private openSourcePicker(): void {
+    const mgr = SourceManager.getInstance()
+    mgr.getSearchSources().then((sources: SourceInstance[]) => {
+      const searchSources = sources.filter((source: SourceInstance) =>
+        source.info.id !== 'local_source' && source.info.id !== 'demo')
+      if (searchSources.length <= 1) {
+        this.showToast('暂无可切换的搜索源')
+        return
+      }
+      this.sourcePickerController = new CustomDialogController({
+        builder: SourcePickerDialog({
+          songName: this.song.name,
+          searchSources: searchSources,
+          currentSourceId: this.song.source,
+          onPick: (sourceId: string) => {
+            this.switchSource(sourceId)
+          }
+        }),
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+        customStyle: true
       })
+      this.sourcePickerController.open()
+    }).catch(() => {
+      this.showToast('读取搜索源失败')
+    })
+  }
+
+  /** 在目标音源搜索同歌并播放（lx-music 风格：单源搜索+解析，失败自动兜底） */
+  private async switchSource(sourceId: string): Promise<void> {
+    if (sourceId === this.song.source) {
+      this.showToast('已是当前音源')
       return
     }
-    // 弹出歌单选择
-    AlertDialog.show({
+    this.showToast('正在切换音源...')
+    const target = await SourceManager.getInstance().searchSameSongInSource(this.song, sourceId, '')
+    if (!target) {
+      this.showToast('未找到可播放版本')
+      return
+    }
+    // 播放前先持久化：将换源结果写回歌单（下次播放/展示使用新源）
+    PlaylistManager.getInstance().updateSongSource(this.song, target).then((changed: boolean) => {
+      LogUtils.info(`[换源] 歌单更新: ${changed}`)
+    }).catch((err: Error) => {
+      LogUtils.warn(`[换源] 歌单更新失败: ${JSON.stringify(err)}`)
+    })
+    PlayerEngine.getInstance().play(target)
+    const sourceLabel = this.getSourceLabel(target.source)
+    if (target.source !== sourceId) {
+      // 所选音源无可用播放地址，自动兜底到了其他源
+      this.showToast(`所选源无可用地址，已改用「${sourceLabel}」播放`)
+    } else {
+      this.showToast(`已切换为「${sourceLabel}」播放`)
+    }
+  }
+
+  private addToPlaylist(): void {
+    const playlists = PlaylistManager.getInstance().getAll()
+    if (playlists.length === 0) { this.nameDialog.open(); return }
+    if (playlists.length === 1) {
+      PlaylistManager.getInstance().addSongs(playlists[0].id, [this.song])
+      this.showToast(`已添加到「${playlists[0].name}」`)
+      return
+    }
+    this.getUIContext().showAlertDialog({
       title: '添加到歌单',
-      message: '选择目标歌单',
+      message: `选择歌单：1.${playlists[0].name}  2.${playlists[1].name}`,
       autoCancel: true,
-      alignment: DialogAlignment.Bottom,
       primaryButton: {
         value: playlists[0].name,
         action: () => {
@@ -98,10 +195,7 @@ export struct MusicItemView {
             PlaylistManager.getInstance().addSongs(playlists[1].id, [this.song])
             this.showToast(`已添加到「${playlists[1].name}」`)
           } else {
-            PlaylistManager.getInstance().create('新歌单', '').then((pl: LocalPlaylist) => {
-              PlaylistManager.getInstance().addSongs(pl.id, [this.song])
-              this.showToast('已创建歌单并添加')
-            })
+            setTimeout(() => { this.nameDialog.open() }, 300)
           }
         }
       }
@@ -109,13 +203,24 @@ export struct MusicItemView {
   }
 
   private showToast(msg: string): void {
-    // 轻提示
-    AlertDialog.show({ title: '提示', message: msg, autoCancel: true })
+    this.getUIContext().getPromptAction().showToast({ message: msg, duration: 1500 })
   }
 
   private formatDuration(sec: number): string {
     const m = Math.floor(sec / 60)
     const s = sec % 60
     return `${m}:${s.toString().padStart(2, '0')}`
+  }
+
+  private getSourceLabel(source: SourceType): string {
+    switch (source) {
+      case SourceType.KG: return '酷狗'
+      case SourceType.WY: return '网易'
+      case SourceType.TX: return 'QQ'
+      case SourceType.KW: return '酷我'
+      case SourceType.MG: return '咪咕'
+      case SourceType.LOCAL: return '本地'
+      default: return '自定义'
+    }
   }
 }

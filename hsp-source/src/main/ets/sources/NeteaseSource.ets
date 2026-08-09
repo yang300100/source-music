@@ -26,11 +26,11 @@ import { BaseSource } from '../api/SourceAPI'
 export class NeteaseSource extends BaseSource {
   private static readonly SEARCH_URL = 'https://music.163.com/api/search/get/web'
   private static readonly LYRIC_URL = 'https://music.163.com/api/song/lyric'
-  private static readonly PLAY_URL = 'https://music.163.com/song/media/outer/url'
+  private static readonly PLAY_URL = 'https://music.163.com/api/song/enhance/player/url'
 
   constructor() {
     super({
-      id: 'netease',
+      id: 'wy',
       name: '网易云音乐',
       version: '1.0.0',
       author: 'Yuki',
@@ -64,6 +64,7 @@ export class NeteaseSource extends BaseSource {
           : '未知歌手'
         const album = item['album'] as Record<string, Object>
         const albumName = album ? (album['name'] as string) ?? '' : ''
+        const imgUrl = album ? ((album['blurPicUrl'] as string) ?? (album['picUrl'] as string) ?? '') : ''
         const duration = Math.floor(Number(item['duration'] ?? 0) / 1000)
 
         const types: Record<string, MusicQualityInfo> = {}
@@ -74,7 +75,7 @@ export class NeteaseSource extends BaseSource {
           singer: singer,
           albumName: albumName,
           interval: duration,
-          imgUrl: '',
+          imgUrl: imgUrl,
           lyricUrl: '',
           source: SourceType.WY,
           types: types
@@ -87,17 +88,22 @@ export class NeteaseSource extends BaseSource {
     }
   }
 
-  /** 获取播放 URL（免费歌可用，VIP 歌抛错换源） */
-  async getMusicInfo(songmid: string, _quality: MusicQuality, fullSong?: MusicItem): Promise<MusicItem> {
+  /** 获取播放 URL（enhance/player/url：免费歌返回地址，VIP 返回空抛错换源，与 lx-music 一致） */
+  async getMusicInfo(songmid: string, quality: MusicQuality, fullSong?: MusicItem): Promise<MusicItem> {
     try {
-      const url = `${NeteaseSource.PLAY_URL}?id=${songmid}.mp3`
-      const body = await NetUtils.getString(url, { 'Referer': 'https://music.163.com' })
-      // 外链播放：免费歌返回音频（body 非 HTML），VIP 歌返回 HTML 页面
-      if (!body || body.includes('<!DOCTYPE') || body.includes('<html')) {
+      // 网易 API 需纯数字 id（songmid 可能带 wy_ 平台前缀）
+      const pureId = songmid.replace(/^wy_/, '')
+      const br = quality === MusicQuality.LOW ? 128000 : (quality === MusicQuality.LOSSLESS || quality === MusicQuality.HIRES ? 320000 : 320000)
+      const url = `${NeteaseSource.PLAY_URL}?ids=[${pureId}]&br=${br}`
+      const data = await NetUtils.getJSON<Record<string, Object>>(url, { 'Referer': 'https://music.163.com' })
+      const arr = data ? (data['data'] as Array<Record<string, Object>>) : null
+      const item = arr && arr.length > 0 ? arr[0] : null
+      const playUrl = item ? (item['url'] as string) ?? '' : ''
+      if (!playUrl) {
         throw new Error('网易歌曲需换源解析（VIP）')
       }
       const types: Record<string, MusicQualityInfo> = {}
-      types['128k'] = { url: url, size: 0, br: 128000 }
+      types['128k'] = { url: playUrl, size: 0, br: 128000 }
       return {
         songmid: songmid,
         name: fullSong?.name ?? '',
@@ -117,7 +123,8 @@ export class NeteaseSource extends BaseSource {
   /** 获取歌词 */
   async getLyric(songmid: string, _fullSong?: MusicItem): Promise<LyricLine[]> {
     try {
-      const url = `${NeteaseSource.LYRIC_URL}?id=${songmid}&lv=1&kv=1&tv=-1`
+      const pureId = songmid.replace(/^wy_/, '')
+      const url = `${NeteaseSource.LYRIC_URL}?id=${pureId}&lv=1&kv=1&tv=-1`
       const data = await NetUtils.getJSON<Record<string, Object>>(url, { 'Referer': 'https://music.163.com' })
       if (!data) return []
       const lrc = data['lrc'] as Record<string, Object>

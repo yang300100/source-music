@@ -5,8 +5,12 @@ import {
   LogUtils,
   StorageUtils
 } from 'common'
+import { fileIo } from '@kit.CoreFileKit'
+import { media } from '@kit.MediaKit'
+import { image } from '@kit.ImageKit'
 
 const STORAGE_KEY_PLAYLISTS = 'local_playlists'
+const FAVORITES_NAME = '我的收藏'
 
 /** .lxmc 文件格式（兼容 lx-music 原版 playListPart_v2） */
 interface LxmcListData {
@@ -55,6 +59,28 @@ export class PlaylistManager {
     return this.playlists.find(p => p.id === id)
   }
 
+  /**
+   * 更新歌单中的歌曲为换源后的新版本（所有歌单中 songmid+source 匹配的旧歌曲）
+   * @returns 是否更新了至少一首
+   */
+  async updateSongSource(oldSong: MusicItem, newSong: MusicItem): Promise<boolean> {
+    let changed = false
+    for (const pl of this.playlists) {
+      for (let i = 0; i < pl.songs.length; i++) {
+        const s = pl.songs[i]
+        if (s.songmid === oldSong.songmid && s.source === oldSong.source) {
+          pl.songs[i] = newSong
+          changed = true
+        }
+      }
+    }
+    if (changed) {
+      await this.save()
+      LogUtils.info(`已更新歌单中的歌曲音源: ${newSong.name} → ${newSong.source}/${newSong.songmid}`)
+    }
+    return changed
+  }
+
   /** 创建新歌单 */
   async create(name: string, description: string = ''): Promise<LocalPlaylist> {
     const playlist: LocalPlaylist = {
@@ -69,6 +95,18 @@ export class PlaylistManager {
     await this.save()
     LogUtils.info(`创建歌单: ${name}`)
     return playlist
+  }
+
+  /** 移动歌单位置（direction: -1 上移 / 1 下移），持久化 */
+  async movePlaylist(id: string, direction: number): Promise<void> {
+    const idx = this.playlists.findIndex(p => p.id === id)
+    if (idx < 0) return
+    const target = idx + direction
+    if (target < 0 || target >= this.playlists.length) return
+    const item = this.playlists.splice(idx, 1)[0]
+    this.playlists.splice(target, 0, item)
+    await this.save()
+    LogUtils.info(`歌单排序: ${item.name} → 第 ${target + 1} 位`)
   }
 
   /** 更新歌单信息 */
@@ -122,6 +160,39 @@ export class PlaylistManager {
     return true
   }
 
+  // ===== 我的收藏（自动歌单） =====
+
+  /** 获取"我的收藏"歌单，不存在则自动创建 */
+  async getOrCreateFavorites(): Promise<LocalPlaylist> {
+    const existing = this.playlists.find(p => p.name === FAVORITES_NAME)
+    if (existing) return existing
+    return await this.create(FAVORITES_NAME, '自动收藏的歌单')
+  }
+
+  /** 判断歌曲是否已在收藏歌单（按 songmid + source 匹配） */
+  async isFavorited(song: MusicItem): Promise<boolean> {
+    const fav = this.playlists.find(p => p.name === FAVORITES_NAME)
+    if (!fav) return false
+    return fav.songs.some(s => s.songmid === song.songmid && s.source === song.source)
+  }
+
+  /**
+   * 切换收藏状态：未收藏则加入，已收藏则移除
+   * @returns 操作后的最终收藏状态（true=已收藏）
+   */
+  async toggleFavorite(song: MusicItem): Promise<boolean> {
+    const fav = await this.getOrCreateFavorites()
+    const index = fav.songs.findIndex(s => s.songmid === song.songmid && s.source === song.source)
+    if (index >= 0) {
+      await this.removeSongs(fav.id, [index])
+      LogUtils.info(`取消收藏: ${song.name} - ${song.singer}`)
+      return false
+    }
+    await this.addSongs(fav.id, [song])
+    LogUtils.info(`收藏成功: ${song.name} - ${song.singer}`)
+    return true
+  }
+
   // ===== .lxmc 导入/导出（兼容 lx-music 原版格式） =====
 
   /**
@@ -162,14 +233,35 @@ export class PlaylistManager {
   }
 
   /**
-   * 从 .lxmc JSON 内容导入歌单（兼容 playListPart 和 playListPart_v2 两种格式）
+   * 从 .lxmc JSON 内容导入歌单
+   * 兼容格式：playListPart / playListPart_v2（单歌单）、playList_v2（多歌单数组，lx-music 原版列表/备份）
    * @param jsonContent .lxmc 文件内容
-   * @returns 创建的歌单，失败返回 null
+   * @returns 创建的歌单（多歌单时返回最后一个），失败返回 null
    */
   async importFromLxmc(jsonContent: string): Promise<LocalPlaylist | null> {
     try {
       const parsed = JSON.parse(jsonContent) as LxmcFile
       if (!parsed || typeof parsed.type !== 'string') return null
+
+      // lx-music 原版 playList_v2：data 为歌单数组，逐个转 playListPart_v2 递归导入
+      if (parsed.type === 'playList_v2' && Array.isArray(parsed.data)) {
+        const plList = parsed.data as Array<Record<string, Object>>
+        let lastCreated: LocalPlaylist | null = null
+        for (const pl of plList) {
+          const single: LxmcFile = {
+            type: 'playListPart_v2',
+            data: {
+              id: pl['id'] as string,
+              name: pl['name'] as string,
+              description: pl['description'] as string,
+              list: pl['list'] as Array<Record<string, Object>>
+            }
+          }
+          lastCreated = await this.importFromLxmc(JSON.stringify(single))
+        }
+        LogUtils.info(`导入 playList_v2 完成: ${plList.length} 个歌单`)
+        return lastCreated
+      }
 
       // 支持旧版 playListPart 和新版 playListPart_v2
       let listData: LxmcListData | null = null
@@ -188,14 +280,15 @@ export class PlaylistManager {
       for (const raw of rawList) {
         const sourceStr = (raw['source'] as string) ?? 'custom'
         const source = this.parseSourceType(sourceStr)
-        const intervalNum = Number(raw['interval'] ?? raw['duration'] ?? 0)
+        const intervalNum = this.parseInterval(raw['interval'] ?? raw['duration'] ?? 0)
+        const meta = raw['meta'] as Record<string, Object> | null
         songs.push({
           songmid: (raw['id'] as string) ?? (raw['songmid'] as string) ?? '',
           name: (raw['name'] as string) ?? '未知歌曲',
           singer: (raw['singer'] as string) ?? (raw['artist'] as string) ?? '未知歌手',
-          albumName: (raw['albumName'] as string) ?? '',
-          interval: isNaN(intervalNum) ? 0 : intervalNum,
-          imgUrl: (raw['imgUrl'] as string) ?? (raw['img'] as string) ?? '',
+          albumName: (raw['albumName'] as string) ?? (meta?.['albumName'] as string) ?? '',
+          interval: intervalNum,
+          imgUrl: (raw['imgUrl'] as string) ?? (raw['img'] as string) ?? (meta?.['imgUrl'] as string) ?? '',
           lyricUrl: (raw['lyricUrl'] as string) ?? '',
           source: source,
           types: {}
@@ -210,10 +303,103 @@ export class PlaylistManager {
         await this.addSongs(playlist.id, songs)
       }
       LogUtils.info(`导入歌单完成: ${name}, ${songs.length} 首`)
+      // 本地歌曲无封面时异步提取内嵌封面（不阻塞导入返回）
+      if (songs.some(s => s.source === SourceType.LOCAL)) {
+        this.fillLocalSongCovers(songs)
+      }
       return this.getById(playlist.id) ?? null
     } catch (err) {
       LogUtils.error('解析 .lxmc 文件失败', JSON.stringify(err))
       return null
+    }
+  }
+
+  /** 解析时长：数字（秒）或 "mm:ss" 字符串，单位统一为秒 */
+  private parseInterval(value: Object | number): number {
+    if (typeof value === 'number') {
+      return isNaN(value) ? 0 : value
+    }
+    if (typeof value === 'string') {
+      const num = Number(value)
+      if (!isNaN(num)) return num
+      const parts = (value as string).split(':')
+      if (parts.length >= 2) {
+        const min = parseInt(parts[parts.length - 2])
+        const sec = parseInt(parts[parts.length - 1])
+        return (isNaN(min) ? 0 : min) * 60 + (isNaN(sec) ? 0 : sec)
+      }
+    }
+    return 0
+  }
+
+  /** 为无封面的本地歌曲提取内嵌封面（保存到沙箱 covers/ 并持久化） */
+  private async fillLocalSongCovers(songs: MusicItem[]): Promise<void> {
+    for (const song of songs) {
+      if (song.source !== SourceType.LOCAL || song.imgUrl) continue
+      const filePath = this.resolveLocalFilePath(song)
+      if (!filePath) continue
+      try {
+        if (!fileIo.accessSync(filePath)) continue
+        const stat = fileIo.statSync(filePath)
+        const fd = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
+        const extractor = await media.createAVMetadataExtractor()
+        extractor.fdSrc = { fd: fd.fd, offset: 0, length: stat.size }
+        const cover = await extractor.fetchAlbumCover()
+        extractor.release()
+        fileIo.closeSync(fd)
+        if (cover) {
+          song.imgUrl = await this.saveCoverToLocal(cover, filePath)
+          await this.save()
+          LogUtils.info(`[封面] 已为本地歌曲补封面: ${song.name}`)
+        }
+      } catch (err) {
+        // 无内嵌封面或解析失败，忽略
+      }
+    }
+  }
+
+  /** 从歌曲信息解析本地文件路径 */
+  private resolveLocalFilePath(song: MusicItem): string {
+    let p = song.songmid
+    if (p.startsWith('local_')) p = p.substring(6)
+    if (p.startsWith('file://')) p = p.substring(7)
+    if (!p) {
+      const url = song.types['320k']?.url ?? ''
+      if (url.startsWith('file://')) p = url.substring(7)
+    }
+    return p
+  }
+
+  /** 内嵌封面保存到沙箱 filesDir/covers/，返回 file:// 路径 */
+  private async saveCoverToLocal(pixelMap: image.PixelMap, filePath: string): Promise<string> {
+    try {
+      const context = getContext()
+      const coverDir = `${context.filesDir}/covers`
+      if (!fileIo.accessSync(coverDir)) {
+        fileIo.mkdirSync(coverDir)
+      }
+      let hash = 0
+      for (let i = 0; i < filePath.length; i++) {
+        hash = (hash * 31 + filePath.charCodeAt(i)) >>> 0
+      }
+      const coverPath = `${coverDir}/${hash}.jpg`
+      if (fileIo.accessSync(coverPath)) {
+        return `file://${coverPath}`
+      }
+      const packer = image.createImagePacker()
+      try {
+        const buffer = await packer.packing(pixelMap, { format: 'image/jpeg', quality: 85 })
+        const coverFile = fileIo.openSync(coverPath,
+          fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC)
+        fileIo.writeSync(coverFile.fd, buffer)
+        fileIo.closeSync(coverFile)
+      } finally {
+        packer.release()
+      }
+      return `file://${coverPath}`
+    } catch (err) {
+      LogUtils.warn('[封面] 保存封面失败', JSON.stringify(err))
+      return ''
     }
   }
 

@@ -12,6 +12,8 @@ import {
 } from 'common'
 import { BaseSource } from '../api/SourceAPI'
 import { fileIo } from '@kit.CoreFileKit'
+import { media } from '@kit.MediaKit'
+import { image } from '@kit.ImageKit'
 
 /**
  * 本地文件音源 — 扫描并播放设备上的音乐文件
@@ -149,6 +151,160 @@ export class LocalFileSource extends BaseSource {
   private isAudioFile(fileName: string): boolean {
     const lower = fileName.toLowerCase()
     return this.supportedExts.some(ext => lower.endsWith(ext))
+  }
+
+  /** 扫描指定文件夹（含子目录递归），并解析音频元数据（标题/歌手/专辑/时长/封面） */
+  async scanDirectoryWithMetadata(dirPath: string): Promise<number> {
+    LogUtils.info(`开始扫描本地音乐(带元数据): ${dirPath}`)
+    const newSongs: MusicItem[] = []
+    try {
+      await this.scanRecursiveWithMetadata(dirPath, newSongs)
+    } catch (err) {
+      LogUtils.error('扫描目录失败', JSON.stringify(err))
+    }
+
+    const existingIds = new Set(this.localSongs.map(s => s.songmid))
+    const added = newSongs.filter(s => !existingIds.has(s.songmid))
+    this.localSongs.push(...added)
+    LogUtils.info(`本地音乐扫描完成: 新增 ${added.length} 首, 总计 ${this.localSongs.length} 首`)
+    return added.length
+  }
+
+  /** 递归扫描目录（带元数据解析） */
+  private async scanRecursiveWithMetadata(dirPath: string, result: MusicItem[]): Promise<void> {
+    try {
+      const files = fileIo.listFileSync(dirPath)
+      for (const file of files) {
+        const fullPath = `${dirPath}/${file}`
+        try {
+          const stat = fileIo.statSync(fullPath)
+          if (stat.isDirectory()) {
+            await this.scanRecursiveWithMetadata(fullPath, result)
+          } else if (this.isAudioFile(file)) {
+            const song = await this.createMusicItemWithMetadata(fullPath, file)
+            if (song) result.push(song)
+          }
+        } catch (err) {
+          // 跳过无法访问的文件
+        }
+      }
+    } catch (err) {
+      LogUtils.warn(`无法访问目录: ${dirPath}`)
+    }
+  }
+
+  /** 用 AVMetadataExtractor 解析音频元数据创建 MusicItem（标题/歌手/专辑/时长/封面） */
+  private async createMusicItemWithMetadata(filePath: string, fileName: string): Promise<MusicItem | null> {
+    let fd: fileIo.File | null = null
+    let extractor: media.AVMetadataExtractor | null = null
+    try {
+      fd = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
+      const stat = fileIo.statSync(filePath)
+
+      let title = ''
+      let singer = ''
+      let album = ''
+      let interval = 0
+      let imgUrl = ''
+
+      try {
+        extractor = await media.createAVMetadataExtractor()
+        extractor.fdSrc = { fd: fd.fd, offset: 0, length: stat.size }
+        const metadata = await extractor.fetchMetadata()
+        title = metadata.title ?? ''
+        singer = metadata.artist ?? ''
+        album = metadata.album ?? ''
+        interval = Number(metadata.duration ?? 0)
+        try {
+          const cover = await extractor.fetchAlbumCover()
+          if (cover) {
+            imgUrl = await this.saveAlbumCover(cover, filePath)
+          }
+        } catch (coverErr) {
+          // 无内嵌封面，忽略
+        }
+      } catch (metaErr) {
+        LogUtils.warn(`元数据解析失败: ${fileName}`)
+      }
+
+      // 元数据缺失时回退文件名解析 "歌手 - 歌名"
+      const dotIndex = fileName.lastIndexOf('.')
+      const baseName = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName
+      if (!title) {
+        title = baseName
+        const dashIndex = baseName.indexOf(' - ')
+        if (dashIndex > 0) {
+          singer = baseName.substring(0, dashIndex).trim()
+          title = baseName.substring(dashIndex + 3).trim()
+        }
+      }
+      if (!singer) singer = '未知歌手'
+      if (!album) album = '本地音乐'
+
+      // 查找同目录下的 .lrc 歌词文件
+      const lrcPath = filePath.replace(/\.[^.]+$/, '.lrc')
+
+      return {
+        songmid: `local_${filePath}`,
+        name: title,
+        singer: singer,
+        albumName: album,
+        interval: interval,
+        imgUrl: imgUrl,
+        lyricUrl: lrcPath,
+        source: SourceType.LOCAL,
+        types: {
+          '320k': {
+            url: filePath.startsWith('file://') ? filePath : `file://${filePath}`,
+            size: stat.size,
+            br: 320000
+          }
+        }
+      }
+    } catch (err) {
+      LogUtils.warn(`无法读取音乐文件: ${fileName}`)
+      return null
+    } finally {
+      if (extractor) {
+        try { extractor.release() } catch (e) { /* 忽略 */ }
+      }
+      if (fd) {
+        try { fileIo.closeSync(fd) } catch (e) { /* 忽略 */ }
+      }
+    }
+  }
+
+  /** 将内嵌封面保存到沙箱 filesDir/covers/，返回 file:// 路径 */
+  private async saveAlbumCover(pixelMap: image.PixelMap, filePath: string): Promise<string> {
+    try {
+      const context = getContext()
+      const coverDir = `${context.filesDir}/covers`
+      if (!fileIo.accessSync(coverDir)) {
+        fileIo.mkdirSync(coverDir)
+      }
+      let hash = 0
+      for (let i = 0; i < filePath.length; i++) {
+        hash = (hash * 31 + filePath.charCodeAt(i)) >>> 0
+      }
+      const coverPath = `${coverDir}/${hash}.jpg`
+      if (fileIo.accessSync(coverPath)) {
+        return `file://${coverPath}`
+      }
+      const packer = image.createImagePacker()
+      try {
+        const buffer = await packer.packing(pixelMap, { format: 'image/jpeg', quality: 85 })
+        const coverFile = fileIo.openSync(coverPath,
+          fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC)
+        fileIo.writeSync(coverFile.fd, buffer)
+        fileIo.closeSync(coverFile)
+      } finally {
+        packer.release()
+      }
+      return `file://${coverPath}`
+    } catch (err) {
+      LogUtils.warn('保存封面失败', JSON.stringify(err))
+      return ''
+    }
   }
 
   /** 从文件路径创建 MusicItem */

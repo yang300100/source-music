@@ -27,7 +27,7 @@ export class QQSource extends BaseSource {
 
   constructor() {
     super({
-      id: 'qqmusic',
+      id: 'tx',
       name: 'QQ音乐',
       version: '1.0.0',
       author: 'Yuki',
@@ -69,7 +69,7 @@ export class QQSource extends BaseSource {
           singer: singer,
           albumName: (item['albumname'] as string) ?? '',
           interval: Math.floor(Number(item['interval'] ?? 0)),
-          imgUrl: '',
+          imgUrl: this.extractCover(item),
           lyricUrl: '',
           source: SourceType.TX,
           types: types
@@ -100,5 +100,18 @@ export class QQSource extends BaseSource {
   /** 热搜（暂不支持） */
   async getHotSearch(): Promise<HotSearchItem[]> {
     return []
+  }
+
+  /** 提取封面：albummid → y.gtimg.cn 封面图，其次 albumimg */
+  private extractCover(item: Record<string, Object>): string {
+    const albummid = (item['albummid'] as string) ?? ''
+    if (albummid) {
+      return `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg`
+    }
+    const albumimg = (item['albumimg'] as string) ?? ''
+    if (albumimg) {
+      return albumimg
+    }
+    return ''
   }
 }
