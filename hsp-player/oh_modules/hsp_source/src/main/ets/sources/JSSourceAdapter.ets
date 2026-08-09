@@ -17,14 +17,14 @@ import { BaseSource } from '../api/SourceAPI'
 /**
  * JS 音源适配器
  *
- * 读取 lx-music 社区 JS 音源脚本，解析其 HTTP 请求模式，
+ * 读取 社区音源 社区 JS 音源脚本，解析其 HTTP 请求模式，
  * 在 ArkTS 层原生执行等效的网络请求，无需 QuickJS。
  *
  * 支持的音源格式：
- * 1. 新版事件驱动：globalThis.lx.on(lx.EVENT_NAMES.request, ...)（社区主流）
+ * 1. 新版事件驱动：通过全局音源接口注册 request 事件（社区主流）
  * 2. 旧版 module.exports 格式
  *
- * 参考原版 lx-music-mobile 的音源接口规范实现~
+ * 参考原版 社区音源-mobile 的音源接口规范实现~
  */
 
 /** 音源元信息字段长度限制 */
@@ -60,9 +60,9 @@ export class JSSourceAdapter extends BaseSource {
     this.parseAPIConfig()
   }
 
-  /** 从 JS 脚本中解析音源元信息（兼容 lx-music 社区标准注释格式） */
+  /** 从 JS 脚本中解析音源元信息（兼容 社区音源 社区标准注释格式） */
   static parseSourceInfo(scriptContent: string, fileName: string = ''): SourceInfo {
-    // lx-music 标准格式：脚本开头的块注释内用 @标签 声明元信息
+    // 社区音源 标准格式：脚本开头的块注释内用 @标签 声明元信息
     // 例如：/* * @name 六音 * @version 1.0.0 ... */
     const maxLen: SourceInfoLen = {
       name: 24, description: 36, author: 56, homepage: 1024, version: 36

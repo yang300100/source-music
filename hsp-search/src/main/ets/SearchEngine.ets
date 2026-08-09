@@ -62,7 +62,7 @@ export class SearchEngine {
 
     const sourceMgr = SourceManager.getInstance()
     // 严格/扩展模式必须隔离缓存，避免关闭扩展搜索后仍返回旧的自定义结果。
-    const searchMode = sourceMgr.isExtendedSearchEnabled() ? 'ext' : 'lx'
+    const searchMode = sourceMgr.isExtendedSearchEnabled() ? 'extended' : 'standard'
     const cacheKey = `${searchMode}_${sourceId}_${page}_${query.trim()}`
     const cached = SearchEngine.searchCache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL) {
@@ -164,7 +164,7 @@ export class SearchEngine {
   /** 获取热搜榜（带内存缓存；启动时预加载后搜索页秒显） */
   static async getHotSearch(): Promise<HotSearchItem[]> {
     const sourceMgr = SourceManager.getInstance()
-    const searchMode = sourceMgr.isExtendedSearchEnabled() ? 'ext' : 'lx'
+    const searchMode = sourceMgr.isExtendedSearchEnabled() ? 'extended' : 'standard'
     const cached = SearchEngine.hotSearchCache
     if (cached && cached.mode === searchMode && Date.now() - cached.timestamp < HOT_SEARCH_TTL) {
       return cached.items

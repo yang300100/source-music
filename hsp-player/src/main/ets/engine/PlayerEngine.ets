@@ -40,11 +40,11 @@ export class PlayerEngine {
   private playGeneration: number = 0
   /** 播放/换源状态文本（对齐参考 onToggleSource：UI 可显示"正在换源解析..."） */
   statusText: string = ''
-  /** 当前歌曲的失败重试次数（最多2次，参考lx-music） */
+  /** 当前歌曲的失败重试次数（最多2次，参考社区音源） */
   private retryNum: number = 0
   /** 错误后跳下一首的定时器（防止重复触发） */
   private errorSkipTimer: number | null = null
-  /** 加载超时定时器（25秒，参考lx-music） */
+  /** 加载超时定时器（25秒，参考社区音源） */
   private loadingTimer: number | null = null
   /** 是否已预加载下一首URL */
   private preloadedNext: boolean = false
@@ -162,7 +162,7 @@ export class PlayerEngine {
       if (this.timeUpdateCount <= 10 || this.timeUpdateCount % 10 === 0) {
         LogUtils.info(`[进度] timeUpdate #${this.timeUpdateCount}: ${time}ms (${(time / 1000).toFixed(1)}s), status=${this.status}, avState=${this.currentAvState}`)
       }
-      // 预加载下一首：距结尾<10秒且未预加载过（参考lx-music preloadNextMusic）
+      // 预加载下一首：距结尾<10秒且未预加载过（参考社区音源 preloadNextMusic）
       if (!this.preloadedNext && this.duration > 0 && this.duration - time < 10000) {
         this.preloadedNext = true
         this.preloadNextSong()
@@ -173,7 +173,7 @@ export class PlayerEngine {
       LogUtils.error('AVPlayer 错误', JSON.stringify(err))
       this.status = PlayerStatus.ERROR
       this.stopLoadingTimer()
-      // 播放器解码失败：刷新URL重试（最多2次），仍失败则5秒后跳下一首（参考lx-music）
+      // 播放器解码失败：刷新URL重试（最多2次），仍失败则5秒后跳下一首（参考社区音源）
       if (this.currentSong && this.retryNum < 2 && this.errorSkipTimer === null) {
         this.retryNum++
         LogUtils.info(`[播放] 解码错误，刷新URL重试 ${this.retryNum}/2: ${this.currentSong.name} - ${this.currentSong.singer}`)
@@ -230,7 +230,7 @@ export class PlayerEngine {
 
     try {
       const sourceMgr = SourceManager.getInstance()
-      // 音质降级链（lx-music 逻辑）：高音质获取失败自动降级到低音质
+      // 音质降级链（社区音源 逻辑）：高音质获取失败自动降级到低音质
       const qualities = this.buildQualityChain(this.defaultQuality)
       let musicInfo: MusicItem | null = null
       for (let qi = 0; qi < qualities.length; qi++) {
@@ -444,7 +444,7 @@ export class PlayerEngine {
     }
   }
 
-  /** 音质降级链（lx-music 逻辑）：从用户设置音质降级到最低音质 */
+  /** 音质降级链（社区音源 逻辑）：从用户设置音质降级到最低音质 */
   private buildQualityChain(preferred: MusicQuality): MusicQuality[] {
     const order: MusicQuality[] = [
       MusicQuality.HIRES, MusicQuality.LOSSLESS, MusicQuality.HIGH, MusicQuality.LOW
@@ -691,7 +691,7 @@ export class PlayerEngine {
     }
   }
 
-  /** 启动加载超时定时器（25秒，参考lx-music） */
+  /** 启动加载超时定时器（25秒，参考社区音源） */
   private startLoadingTimer(): void {
     this.stopLoadingTimer()
     this.loadingTimer = setTimeout(() => {
@@ -733,7 +733,7 @@ export class PlayerEngine {
     }, 3000)
   }
 
-  /** 预加载下一首URL到缓存（不播放，参考lx-music preloadNextMusic） */
+  /** 预加载下一首URL到缓存（不播放，参考社区音源 preloadNextMusic） */
   private async preloadNextSong(): Promise<void> {
     const nextSong = this.queue.peekNext()
     if (!nextSong || !nextSong.name) {

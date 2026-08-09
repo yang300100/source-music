@@ -6,7 +6,7 @@ import { JsExecutor } from 'hsp_source'
  * 基于 WebView(ArkWeb) 的 JS 执行器
  *
  * 与 JSVM 不同：ArkWeb 引擎执行脚本无需 ACL 受限权限，且提供完整浏览器环境。
- * 脚本网络请求（lx.request）通过 JavaScriptProxy 桥接到 ArkTS 原生 http
+ * 脚本网络请求通过 JavaScriptProxy 桥接到 ArkTS 原生 http
  * （Web 页面 fetch 受 CORS/混合内容限制会静默挂起，原生网络无此限制）。
  * 由 Index 挂载隐藏 Web 组件后注册到 JsExecutorRegistry。
  */
@@ -54,8 +54,8 @@ export class WebJsExecutor implements JsExecutor {
   }
 
   /**
-   * 原生网络请求（JavaScriptProxy 桥接：Web 页面 lx.request → 这里）
-   * 请求完成后通过 runJavaScript 调用 window.__lxNetCb__ 回传结果
+   * 原生网络请求（JavaScriptProxy 桥接：Web 页面音源请求 → 这里）
+   * 请求完成后通过 runJavaScript 调用 window.__sourceNetCb__ 回传结果
    */
   async nativeRequest(url: string, optionsJson: string, callbackId: string): Promise<void> {
     LogUtils.info(`[Web执行器] 原生请求收到: url=${url.substring(0, 100)}, id=${callbackId}, opts=${optionsJson.substring(0, 100)}`)
@@ -73,11 +73,11 @@ export class WebJsExecutor implements JsExecutor {
       const respBody = await NetUtils.requestRaw(url, method, headers, body)
       LogUtils.info(`[Web执行器] 原生请求完成: len=${respBody.length}, 前80=${respBody.substring(0, 80)}`)
       await this.runJs(
-        `window.__lxNetCb__(${JSON.stringify(callbackId)}, 'null', ${JSON.stringify(respBody)})`)
+        `window.__sourceNetCb__(${JSON.stringify(callbackId)}, 'null', ${JSON.stringify(respBody)})`)
     } catch (err) {
       LogUtils.warn(`[Web执行器] 原生请求失败: ${JSON.stringify(err)}`)
       await this.runJs(
-        `window.__lxNetCb__(${JSON.stringify(callbackId)}, ${JSON.stringify(JSON.stringify(String(err)))}, '')`)
+        `window.__sourceNetCb__(${JSON.stringify(callbackId)}, ${JSON.stringify(JSON.stringify(String(err)))}, '')`)
     }
   }
 

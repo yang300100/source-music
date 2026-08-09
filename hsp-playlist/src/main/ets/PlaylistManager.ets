@@ -12,23 +12,23 @@ import { image } from '@kit.ImageKit'
 const STORAGE_KEY_PLAYLISTS = 'local_playlists'
 const FAVORITES_NAME = '我的收藏'
 
-/** .lxmc 文件格式（兼容 lx-music 原版 playListPart_v2） */
-interface LxmcListData {
+/** 歌单归档格式（兼容既有 playListPart_v2 数据） */
+interface PlaylistArchiveListData {
   id?: string
   name?: string
   description?: string
   list?: Array<Record<string, Object>>
 }
-interface LxmcFile {
+interface PlaylistArchiveFile {
   type: string
-  data?: LxmcListData
+  data?: PlaylistArchiveListData
 }
 
 /**
  * 本地歌单管理器
  *
  * 提供歌单的完整 CRUD 操作，支持持久化存储。
- * 支持 .lxmc 格式导入/导出（兼容 lx-music 原版）。
+ * 支持 JSON 歌单归档导入与导出，并兼容既有歌单数据结构。
  */
 export class PlaylistManager {
   private playlists: LocalPlaylist[] = []
@@ -193,19 +193,19 @@ export class PlaylistManager {
     return true
   }
 
-  // ===== .lxmc 导入/导出（兼容 lx-music 原版格式） =====
+  // ===== JSON 歌单归档导入/导出 =====
 
   /**
-   * 导出歌单为 .lxmc 格式 JSON 字符串
+   * 导出歌单为 JSON 归档字符串
    * 格式：{ type: 'playListPart_v2', data: { id, name, description, list } }
    * @param playlistId 要导出的歌单 ID
    * @returns JSON 字符串
    */
-  exportToLxmc(playlistId: string): string {
+  exportArchive(playlistId: string): string {
     const playlist = this.getById(playlistId)
     if (!playlist) return ''
 
-    // 将 MusicItem 转换为 lx-music 原版 MusicInfo 字段
+    // 将 MusicItem 转换为兼容的 MusicInfo 字段
     const list: Array<Record<string, Object>> = []
     for (const song of playlist.songs) {
       const item: Record<string, Object> = {}
@@ -220,7 +220,7 @@ export class PlaylistManager {
       list.push(item)
     }
 
-    const data: LxmcFile = {
+    const data: PlaylistArchiveFile = {
       type: 'playListPart_v2',
       data: {
         id: playlist.id,
@@ -233,22 +233,22 @@ export class PlaylistManager {
   }
 
   /**
-   * 从 .lxmc JSON 内容导入歌单
-   * 兼容格式：playListPart / playListPart_v2（单歌单）、playList_v2（多歌单数组，lx-music 原版列表/备份）
-   * @param jsonContent .lxmc 文件内容
+   * 从 JSON 归档内容导入歌单
+   * 兼容格式：playListPart / playListPart_v2（单歌单）、playList_v2（多歌单数组）
+   * @param jsonContent JSON 文件内容
    * @returns 创建的歌单（多歌单时返回最后一个），失败返回 null
    */
-  async importFromLxmc(jsonContent: string): Promise<LocalPlaylist | null> {
+  async importArchive(jsonContent: string): Promise<LocalPlaylist | null> {
     try {
-      const parsed = JSON.parse(jsonContent) as LxmcFile
+      const parsed = JSON.parse(jsonContent) as PlaylistArchiveFile
       if (!parsed || typeof parsed.type !== 'string') return null
 
-      // lx-music 原版 playList_v2：data 为歌单数组，逐个转 playListPart_v2 递归导入
+      // playList_v2 的 data 为歌单数组，逐个转为单歌单结构递归导入。
       if (parsed.type === 'playList_v2' && Array.isArray(parsed.data)) {
         const plList = parsed.data as Array<Record<string, Object>>
         let lastCreated: LocalPlaylist | null = null
         for (const pl of plList) {
-          const single: LxmcFile = {
+          const single: PlaylistArchiveFile = {
             type: 'playListPart_v2',
             data: {
               id: pl['id'] as string,
@@ -257,14 +257,14 @@ export class PlaylistManager {
               list: pl['list'] as Array<Record<string, Object>>
             }
           }
-          lastCreated = await this.importFromLxmc(JSON.stringify(single))
+          lastCreated = await this.importArchive(JSON.stringify(single))
         }
         LogUtils.info(`导入 playList_v2 完成: ${plList.length} 个歌单`)
         return lastCreated
       }
 
       // 支持旧版 playListPart 和新版 playListPart_v2
-      let listData: LxmcListData | null = null
+      let listData: PlaylistArchiveListData | null = null
       if (parsed.type === 'playListPart_v2' && parsed.data) {
         listData = parsed.data
       } else if (parsed.type === 'playListPart' && parsed.data) {
@@ -297,7 +297,7 @@ export class PlaylistManager {
 
       // 创建歌单
       const name = (listData.name ?? '导入歌单').toString()
-      const description = (listData.description ?? '从 .lxmc 文件导入').toString()
+      const description = (listData.description ?? '从 JSON 歌单文件导入').toString()
       const playlist = await this.create(name, description)
       if (songs.length > 0) {
         await this.addSongs(playlist.id, songs)
@@ -309,7 +309,7 @@ export class PlaylistManager {
       }
       return this.getById(playlist.id) ?? null
     } catch (err) {
-      LogUtils.error('解析 .lxmc 文件失败', JSON.stringify(err))
+      LogUtils.error('解析歌单归档失败', JSON.stringify(err))
       return null
     }
   }

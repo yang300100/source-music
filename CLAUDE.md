@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-洛雪音乐鸿蒙版 — 基于 HarmonyOS 的原生音乐播放器，遵循"壳与音源分离"架构。播放器不含任何内置版权音源，音乐数据来自用户导入的 JS 脚本（兼容 lx-music 社区生态）或 ArkTS 原生音源模块。
+源音乐鸿蒙版 — 基于 HarmonyOS 的原生音乐播放器，遵循"壳与音源分离"架构。播放器不含任何内置版权音源，音乐数据来自用户导入的 JS 脚本（兼容 社区音源 社区生态）或 ArkTS 原生音源模块。
 
 **三阶段推进**：MVP（核心链路）→ 功能补齐（原版全覆盖）→ 鸿蒙深度集成（分布式/元服务）
 
-详见 `docs/superpowers/specs/2026-08-06-lx-harmonyos-design.md`
+详见 `docs/superpowers/specs/2026-08-06-source-music-harmonyos-design.md`
 
 ## 当前进度（2026-08-06 记录）
 
@@ -21,7 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 播放（URL 解析 → AVPlayer） | ✅ 实测出声 |
 | 音源持久化（重启自动恢复 JS 音源） | ✅ |
 | 本地音乐导入（文件选择器多选） | ✅ |
-| 歌单 CRUD + .lxmc 导入导出 + 备份恢复 | ✅ |
+| 歌单 CRUD + .json 导入导出 + 备份恢复 | ✅ |
 | 媒体会话（通知栏/锁屏控制） | ✅ |
 | 主题切换、搜索历史 | ✅ |
 | 播放队列（整列表入队切歌） | ✅ |
@@ -41,7 +41,7 @@ devecocli build --modules entry --build-mode release  # 发布构建
 devecocli build clean                     # 清理
 devecocli run                             # 构建并安装到设备
 devecocli log --level E                   # 查看错误日志
-devecocli log --level I | grep -i lxmusic # 应用日志（TAG=LxMusic）
+devecocli log --level I | grep -i source_music # 应用日志（TAG=SourceMusic）
 devecocli docs search "关键词"            # 搜索本地 HarmonyOS 文档
 ```
 
@@ -81,9 +81,9 @@ hsp-playlist/       # HSP 歌单 — PlaylistManager CRUD + preferences 持久�
   - 导出 API：`createVM/destroyVM/evalScript/callGlobalFunction/setNativeResult`
   - ArkTS 加载方式：`import jsvmBridgeNative from 'libjsvm_bridge.so'`（**不能用 requireNapi**）
 - **脚本执行架构**（重要！踩坑总结）：
-  - **脚本侧零原生回调**：lx.request 只入队（pendingRequests），ArkTS 主动轮询 `__lx_takeRequests__` 取请求、`__lx_takeResult__` 取结果
-  - `__lx_resolveRequest__` 由 native 在干净栈上调用（setNativeResult）
-  - `__lx_tick__` 驱动脚本内 setTimeout（脚本兼容性关键）
+  - **脚本侧零原生回调**：sourceApi.request 只入队（pendingRequests），ArkTS 主动轮询 `__source_takeRequests__` 取请求、`__source_takeResult__` 取结果
+  - `__source_resolveRequest__` 由 native 在干净栈上调用（setNativeResult）
+  - `__source_tick__` 驱动脚本内 setTimeout（脚本兼容性关键）
   - callAction 等待循环：tick → 取请求 → 发网络 → 取结果（15 秒超时）
 - **V8 深坑**（全部已修）：
   - HandleScope/EnvScope/VMScope 三层作用域（最外层调用必须全开）

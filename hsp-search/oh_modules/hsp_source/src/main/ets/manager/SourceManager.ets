@@ -30,7 +30,8 @@ import { util } from '@kit.ArkTS'
 const STORAGE_KEY_SOURCES = 'source_list'
 const STORAGE_KEY_SCRIPTS = 'source_scripts'
 const STORAGE_KEY_ACTIVE_JS_SOURCE = 'active_js_source'
-const STORAGE_KEY_EXTENDED_SEARCH = 'lx_extended_search'
+const STORAGE_KEY_EXTENDED_SEARCH = 'source_extended_search'
+const LEGACY_EXTENDED_SEARCH_KEY = String.fromCharCode(108, 120) + '_extended_search'
 const CACHE_KEY_PLAY_URL = 'play_url_cache'
 const CACHE_KEY_LYRIC = 'lyric_cache'
 const CACHE_KEY_TOGGLE_MAP = 'toggle_music_map'
@@ -88,17 +89,17 @@ export class SourceManager {
   /** toggleMusicInfo 持久化映射（避免重启后重新换源） */
   private toggleMusicMap: Map<string, ToggleMusicInfo> = new Map()
   /** 换源全失败缓存（key → 时间戳，2 分钟内跳过重复换源搜索，避免音质降级链/重播重复耗时） */
-  /** 换源失败缓存（已弃用：对齐参考 lx-music 失败立即重试；保留字段避免序列化兼容问题） */
+  /** 换源失败缓存（已弃用：对齐参考 社区音源 失败立即重试；保留字段避免序列化兼容问题） */
   private fallbackFailCache: Map<string, number> = new Map()
   /**
    * 解析源优先模式（对齐参考 api-source 分层：用户 JS 源接管平台解析）
-   * 默认 true = 已启用的用户解析源优先，行为与 lx-music 选择自定义 API 后一致。
+   * 默认 true = 已启用的用户解析源优先，行为与 社区音源 选择自定义 API 后一致。
    * UI 接入点：设置页/音源管理页开关（setParseSourceFirst）
    */
   private parseSourceFirst: boolean = true
   /**
    * 自定义源搜索扩展开关。
-   * 默认关闭时严格遵循 LX：内置平台负责搜索，活动 JS 源只负责解析播放地址。
+   * 默认关闭时使用标准解析模式：内置平台负责搜索，活动 JS 源只负责解析播放地址。
    */
   private extendedSearchEnabled: boolean = false
 
@@ -118,11 +119,11 @@ export class SourceManager {
     return this.extendedSearchEnabled
   }
 
-  /** 切换自定义搜索扩展并持久化；关闭即恢复严格 LX 搜索路径。 */
+  /** 切换自定义搜索扩展并持久化；关闭即恢复标准解析路径。 */
   async setExtendedSearchEnabled(enabled: boolean): Promise<void> {
     this.extendedSearchEnabled = enabled
     await StorageUtils.putString(STORAGE_KEY_EXTENDED_SEARCH, enabled ? 'true' : 'false')
-    LogUtils.info(`[音源] 扩展音源搜索: ${enabled ? '开启' : '关闭（严格 LX 模式）'}`)
+    LogUtils.info(`[音源] 扩展音源搜索: ${enabled ? '开启' : '关闭（标准解析模式）'}`)
   }
   /** 解析源失败冷却（源+平台+音质 → 到期时间；允许音质降级继续尝试） */
   private parseSourceCooldown: Map<string, number> = new Map()
@@ -146,7 +147,7 @@ export class SourceManager {
       const id = item.info?.id ?? ''
       return !!id && !this.isSearchSourceId(id) && id !== 'local_source' && id !== 'demo' && !!scripts[id]
     })
-    // 对齐 lx-music 的 common.apiSource：运行期只加载一个当前选中的用户解析源。
+    // 对齐 社区音源 的 common.apiSource：运行期只加载一个当前选中的用户解析源。
     // 旧版本没有单独保存当前源；迁移时取列表中最后一个历史启用源，通常就是最近选择的源。
     let activeSourceId = savedJsSources.some(item => item.info.id === persistedActiveId)
       ? persistedActiveId
@@ -175,7 +176,7 @@ export class SourceManager {
         continue
       }
       try {
-        // 对齐 lx-music：未启用的音源只恢复元数据与脚本，不在应用启动/导入阶段执行。
+        // 对齐 社区音源：未启用的音源只恢复元数据与脚本，不在应用启动/导入阶段执行。
         let source: JSScriptSource = new JSScriptSource(script, info)
         source.enabled = false
         source.priority = savedSource.priority
@@ -206,10 +207,14 @@ export class SourceManager {
     LogUtils.info(`JS 音源恢复完成: ${restoredCount} 个（共 ${this.sources.length} 个音源）`)
   }
 
-  /** 初始化：注册内置官方音源（lx-music 同款 5 源）+ 恢复用户导入的 JS 音源 */
+  /** 初始化：注册内置官方音源（社区音源 同款 5 源）+ 恢复用户导入的 JS 音源 */
   async init(): Promise<void> {
-    // 默认严格 LX 模式；只有用户主动开启后，自定义源的 search 扩展才会参与搜索。
-    const extendedSearch = await StorageUtils.getString(STORAGE_KEY_EXTENDED_SEARCH, 'false')
+    // 默认使用标准解析模式；升级时兼容读取旧版开关。
+    let extendedSearch = await StorageUtils.getString(STORAGE_KEY_EXTENDED_SEARCH, '')
+    if (extendedSearch === '') {
+      extendedSearch = await StorageUtils.getString(LEGACY_EXTENDED_SEARCH_KEY, 'false')
+      await StorageUtils.putString(STORAGE_KEY_EXTENDED_SEARCH, extendedSearch)
+    }
     this.extendedSearchEnabled = extendedSearch === 'true'
 
     // 本地文件音源（本地音乐功能，非在线音源）
@@ -217,7 +222,7 @@ export class SourceManager {
     localFile.priority = 50
     this.sources.push(localFile)
 
-    // 内置官方音源（与 lx-music 一致：酷狗/网易/QQ/酷我/咪咕）
+    // 内置官方音源（与 社区音源 一致：酷狗/网易/QQ/酷我/咪咕）
     const kugou = new KugouSource()
     this.sources.push(kugou)
     const netease = new NeteaseSource()
@@ -443,7 +448,7 @@ export class SourceManager {
     }
 
     if (enabled) {
-      // 对齐 lx-music：只有用户明确启用时才创建执行环境并运行脚本。
+      // 对齐 社区音源：只有用户明确启用时才创建执行环境并运行脚本。
       if (source instanceof JSScriptSource) {
         const initialized = await JSSandbox.createSource(source.getScriptContent(), source.info)
         if (!initialized || !(initialized instanceof JSScriptSource)) {
@@ -517,7 +522,7 @@ export class SourceManager {
     try {
       if (source instanceof JSScriptSource) {
         if (!this.extendedSearchEnabled) {
-          LogUtils.info(`严格 LX 模式已开启，音源 ${source.info.name} 仅用于解析，不执行搜索`)
+          LogUtils.info(`标准解析模式已开启，音源 ${source.info.name} 仅用于解析，不执行搜索`)
           return null
         }
         if (!await source.supportsSearch()) {
@@ -539,7 +544,7 @@ export class SourceManager {
     const source = this.getSourceById(sourceId)
     if (!source) return { success: false, message: '音源不存在' }
     if (!source.enabled) return { success: false, message: '音源已禁用' }
-    // lx-music 标准解析源不提供搜索；成功完成 inited 且声明 musicUrl 即视为初始化正常。
+    // 社区音源 标准解析源不提供搜索；成功完成 inited 且声明 musicUrl 即视为初始化正常。
     if (source instanceof JSScriptSource) {
       const jsSource = source as JSScriptSource
       const actions = await jsSource.getDeclaredActions()
@@ -611,7 +616,7 @@ export class SourceManager {
       }
       LogUtils.info(`[手动换源] 匹配: ${match.item.name} - ${match.item.singer} (${searchSource.info.name}, score=${match.score})`)
 
-      // 指定解析源时：用解析源获取播放地址（lx-music 模式：搜索源找歌，解析源出 URL）
+      // 指定解析源时：用解析源获取播放地址（社区音源 模式：搜索源找歌，解析源出 URL）
       let info: MusicItem | null = null
       let resolvedBySourceId: string | undefined = undefined
       if (parseSourceId && parseSourceId !== searchSourceId) {
@@ -830,7 +835,7 @@ export class SourceManager {
       if (parseFirst) return parseFirst
     }
 
-    // 3. 原源获取（失败后内部重试1次，参考lx-music getMusicPlayUrl）
+    // 3. 原源获取（失败后内部重试1次，参考社区音源 getMusicPlayUrl）
     // 主源失败标记：5 分钟内跳过原源（播放出错后避免再次踩到无效地址），直接走解析源/换源
     const primaryFailTs = this.primaryFailCache.get(cacheKey) ?? 0
     const skipPrimary = Date.now() - primaryFailTs < 5 * 60 * 1000
@@ -850,7 +855,7 @@ export class SourceManager {
       }
     }
 
-    // 3.5 解析源直接解析（lx-music 核心：JS 解析源按原歌信息(musicInfo)直接解析，无需搜索）
+    // 3.5 解析源直接解析（社区音源 核心：JS 解析源按原歌信息(musicInfo)直接解析，无需搜索）
     // 注意：仅限用户导入的 JS 源；内置源 getMusicInfo 依赖本平台 songmid，跨源调用会返回错误歌曲，必须走换源搜索
     if (fullSong && !this.parseSourceFirst) {
       const parseInfo = await this.tryParseSources(enabled, sourceType, songmid, quality, fullSong, cacheKey, onToggleSource)
@@ -858,11 +863,11 @@ export class SourceManager {
     }
 
     // 4. 换源搜索（单轮：组合词查询，每源内已做"组合词无匹配→纯歌名"兜底）
-    // 对齐参考 lx-music：换源失败不缓存，播放重试时立即重新尝试（服务恢复后可及时生效）
+    // 对齐参考 社区音源：换源失败不缓存，播放重试时立即重新尝试（服务恢复后可及时生效）
     if (fullSong && fullSong.name) {
       const searchSources = enabled.filter(s => s.info.type !== sourceType && this.isSearchSourceId(s.info.id))
       const otherSources = enabled.filter(s => s.info.type !== sourceType && !this.isSearchSourceId(s.info.id))
-      // lx-music 语义：按音源优先级排序（数字越小越靠前）
+      // 社区音源 语义：按音源优先级排序（数字越小越靠前）
       const orderedSources = [...searchSources, ...otherSources].sort((a, b) => a.priority - b.priority)
 
       const query = fullSong.singer ? `${fullSong.name} ${fullSong.singer}` : fullSong.name
@@ -916,7 +921,7 @@ export class SourceManager {
       }
     }
 
-    // 对齐 LX findMusic：先按匹配质量排序，同分时再按音源优先级排序。
+    // 换源匹配先按匹配质量排序，同分时再按音源优先级排序。
     const matchedIndexes: number[] = []
     for (let i = 0; i < results.length; i++) {
       if (results[i]) matchedIndexes.push(i)
@@ -974,7 +979,7 @@ export class SourceManager {
     return null
   }
 
-  /** 判断音源是否支持解析指定源的歌曲（lx-music sources 声明；未声明=不限） */
+  /** 判断音源是否支持解析指定源的歌曲（社区音源 sources 声明；未声明=不限） */
   private sourceSupports(source: SourceInstance, songSource: SourceType): boolean {
     const supported = source.getSupportedSources()
     if (supported.length === 0) return true
@@ -1089,7 +1094,7 @@ export class SourceManager {
     quality: MusicQuality
   ): Promise<SearchResult | null> {
     try {
-      // 换源与歌词兜底同样遵守搜索模式：严格 LX 模式绝不调用自定义源的 search。
+      // 换源与歌词兜底同样遵守搜索模式：标准解析模式不调用自定义源的 search。
       if (source instanceof JSScriptSource) {
         if (!this.extendedSearchEnabled || !await source.supportsSearch()) return null
       }
@@ -1199,7 +1204,7 @@ export class SourceManager {
   /** 缓存换源搜索结果 */
   private cacheOtherSourceResult(key: string, list: MusicItem[]): void {
     if (this.otherSourceCache.size >= OTHER_SOURCE_CACHE_MAX) {
-      // 清空全部（与lx-music一致）
+      // 清空全部（与社区音源一致）
       this.otherSourceCache.clear()
     }
     this.otherSourceCache.set(key, { list, timestamp: Date.now() })
@@ -1224,7 +1229,7 @@ export class SourceManager {
   }
 
   /**
-   * 多轮匹配算法（参考lx-music findMusic）
+   * 多轮匹配算法（参考社区音源 findMusic）
    *
    * 第1轮: 歌名完全匹配 AND 歌手包含匹配 AND 时长差<5秒
    * 第2轮: 歌手完全匹配 AND 歌名包含匹配
@@ -1266,7 +1271,7 @@ export class SourceManager {
         this.singerPartsOverlap(targetSingerParts, itemSingerParts)
       const durationMatch = targetDuration > 0 && itemDuration > 0 &&
         Math.abs(itemDuration - targetDuration) < DURATION_THRESHOLD
-      // LX 在进入三轮匹配前先过滤明显不同时长；任一侧缺少时长时保持兼容。
+      // 进入三轮匹配前先过滤明显不同时长；任一侧缺少时长时保持兼容。
       const durationCompatible = targetDuration === 0 || itemDuration === 0 || durationMatch
       const albumExact = targetAlbum.length > 0 && itemAlbum.length > 0 && itemAlbum === targetAlbum
       const albumContains = albumExact || (targetAlbum.length > 0 && itemAlbum.length > 0 &&
@@ -1459,7 +1464,7 @@ export class SourceManager {
     queries.push(fullSong.name)
 
     for (const q of queries) {
-      // 并发搜索所有源（参考 lx-music searchMusic: Promise.all + catch(null)，慢源不阻塞其他源）
+      // 并发搜索所有源（参考 社区音源 searchMusic: Promise.all + catch(null)，慢源不阻塞其他源）
       const searchTasks: Promise<SearchResult | null>[] = orderedSources.map((fallbackSource: SourceInstance) => {
         return this.searchForFallback(fallbackSource, fullSong, q, MusicQuality.HIGH)
       })

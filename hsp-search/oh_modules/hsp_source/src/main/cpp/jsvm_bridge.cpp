@@ -432,8 +432,8 @@ napi_value NapiSetNativeResult(napi_env env, napi_callback_info info) {
     {
         VmScopes scopes;
         if (scopes.open(inst->vm, inst->env)) {
-            // 调用脚本侧 __lx_resolveRequest__(requestId, errorJson, responseJson)
-            JSVM_Value fn = GetGlobalProperty(inst->env, "__lx_resolveRequest__");
+            // 调用脚本侧 __source_resolveRequest__(requestId, errorJson, responseJson)
+            JSVM_Value fn = GetGlobalProperty(inst->env, "__source_resolveRequest__");
             if (IsFunction(inst->env, fn)) {
                 JSVM_Value argvCall[3];
                 // 参数 0：requestId 字符串

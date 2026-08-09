@@ -269,23 +269,23 @@ export struct PlaylistListContent {
 
   private async exportPlaylist(event: ClickEvent): Promise<void> {
     this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 320, 180)
-    const lxmc = PlaylistManager.getInstance().exportToLxmc(this.selectedPlaylistId)
-    if (!lxmc) {
+    const archiveJson = PlaylistManager.getInstance().exportArchive(this.selectedPlaylistId)
+    if (!archiveJson) {
       this.showInfoDialog('导出失败', '歌单不存在或为空')
       return
     }
     try {
       const documentPicker = new picker.DocumentViewPicker()
-      const saveResult = await documentPicker.save({ newFileNames: [`${this.playlist?.name ?? '歌单'}.lxmc`] })
+      const saveResult = await documentPicker.save({ newFileNames: [`${this.playlist?.name ?? '歌单'}.json`] })
       const saveUri = saveResult && saveResult.length > 0 ? saveResult[0] : ''
       if (saveUri) {
         const file = fileIo.openSync(saveUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE)
-        // .lxmc 为纯 JSON 文本
+        // 歌单归档为纯 JSON 文本。
         const encoder = new util.TextEncoder()
-        const buffer = encoder.encodeInto(lxmc)
+        const buffer = encoder.encodeInto(archiveJson)
         fileIo.writeSync(file.fd, buffer)
         fileIo.closeSync(file)
-        this.showToast('歌单已导出为 .lxmc 文件')
+        this.showToast('歌单已导出为 JSON 文件')
       }
     } catch (err) {
       this.showInfoDialog('导出失败', JSON.stringify(err))

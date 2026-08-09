@@ -57,7 +57,7 @@ export class RemoteMusicSource extends BaseSource {
         songmid: 'demo_001',
         name: '夏日晴空',
         singer: 'Yuki 演示',
-        albumName: '洛雪演示集',
+        albumName: '源音乐演示集',
         interval: 180,
         imgUrl: '',
         lyricUrl: '',

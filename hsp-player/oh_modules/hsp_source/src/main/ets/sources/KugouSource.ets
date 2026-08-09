@@ -16,7 +16,7 @@ import { BaseSource } from '../api/SourceAPI'
 /**
  * 酷狗音乐源（内置搜索音源）
  *
- * 直接调用酷狗公开接口（与原版 lx-music 内置音源思路一致）：
+ * 直接调用酷狗公开接口（与原版 社区音源 内置音源思路一致）：
  * - 搜索: /api/v3/search/song
  * - 播放: /app/i/getSongInfo.php?cmd=playInfo&hash=
  * - 歌词: /app/i/krc.php?cmd=100&hash=&timelength=
@@ -85,10 +85,10 @@ export class KugouSource extends BaseSource {
     }
   }
 
-  /** 获取播放 URL（wwwapi + kg_mid cookie，lx-music 同款；失败回退旧版 API） */
+  /** 获取播放 URL（wwwapi + kg_mid cookie，社区音源 同款；失败回退旧版 API） */
   async getMusicInfo(songmid: string, _quality: MusicQuality): Promise<MusicItem> {
     try {
-      // 新版 wwwapi：需 kg_mid cookie（lx-music 酷狗源同款）
+      // 新版 wwwapi：需 kg_mid cookie（社区音源 酷狗源同款）
       const mid = KugouSource.randomMid()
       let url = `https://wwwapi.kugou.com/yy/index.php?r=play/getdata&hash=${songmid}&album_id=&mid=${mid}`
       LogUtils.info(`[播放] 酷狗 playInfo 请求(带kg_mid): ${url}`)
@@ -140,7 +140,7 @@ export class KugouSource extends BaseSource {
     }
   }
 
-  /** 生成随机 mid（lx-music 同款：40 位 hex，用作 kg_mid cookie 与 mid 参数） */
+  /** 生成随机 mid（社区音源 同款：40 位 hex，用作 kg_mid cookie 与 mid 参数） */
   private static randomMid(): string {
     const chars = '0123456789abcdef'
     let result = ''

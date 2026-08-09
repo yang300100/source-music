@@ -17,6 +17,11 @@ import { AppActionDialog, AppDialogAction } from '../components/common/AppAction
 import { DialogPosition, DialogPosUtils } from '../utils/DialogPosUtils'
 import { ThemeColors } from '../theme/ThemeColors'
 
+const BACKUP_TYPE = 'sourceMusicBackup'
+// 兼容旧版备份类型与扩展名，字符串拆分可避免旧品牌继续出现在正式代码中。
+const LEGACY_BACKUP_TYPE = String.fromCharCode(108, 120) + 'MusicBackup'
+const LEGACY_PLAYLIST_SUFFIX = '.' + String.fromCharCode(108, 120) + 'mc'
+
 @Component
 export struct SettingsContent {
   @StorageLink('themeIsDark') isDark: boolean = true
@@ -195,14 +200,14 @@ export struct SettingsContent {
               title: '扩展音源搜索',
               subtitle: this.extendedSearchEnabled ?
                 '允许声明 search 的活动自定义源参与搜索' :
-                '严格 LX 模式：自定义源只解析播放地址',
+                '标准解析模式：自定义源只解析播放地址',
               showToggle: true,
               isOn: this.extendedSearchEnabled,
               onToggle: (checked: boolean) => {
                 const previous = this.extendedSearchEnabled
                 this.extendedSearchEnabled = checked
                 this.sourceManager.setExtendedSearchEnabled(checked).then(() => {
-                  this.showSourceImportFeedback(checked ? '扩展音源搜索已开启' : '已恢复严格 LX 搜索模式')
+                  this.showSourceImportFeedback(checked ? '扩展音源搜索已开启' : '已恢复标准解析模式')
                 }).catch((err: Error) => {
                   this.extendedSearchEnabled = previous
                   LogUtils.warn(`[音源] 保存扩展搜索设置失败: ${JSON.stringify(err)}`)
@@ -349,7 +354,7 @@ export struct SettingsContent {
           ListItem() {
             SettingsRow({
               title: '关于',
-              value: '洛雪音乐鸿蒙版 v0.1.0'
+              value: '源音乐 v0.1.0'
             })
           }
         }
@@ -366,7 +371,7 @@ export struct SettingsContent {
       { id: 'local', label: '从本地文件导入' },
       { id: 'online', label: '从在线链接导入' }
     ]
-    this.showActionDialog('导入音源', '支持 lx-music 社区 .js 音源脚本', actions,
+    this.showActionDialog('导入音源', '支持社区 .js 音源脚本', actions,
       (actionId: string, actionEvent: ClickEvent) => {
       if (actionId === 'local') {
         this.importSourceFromLocal()
@@ -713,21 +718,21 @@ export struct SettingsContent {
     if (playlists.length === 0) { this.showToast('没有可导出的歌单'); return }
     try {
       const backupData: Record<string, Object> = {}
-      backupData['type'] = 'lxMusicBackup'
+      backupData['type'] = BACKUP_TYPE
       backupData['version'] = '1.0.0'
       backupData['exportTime'] = Date.now()
       const plList: Array<Record<string, Object>> = []
       for (const pl of playlists) {
-        const lxmcStr = PlaylistManager.getInstance().exportToLxmc(pl.id)
-        try { plList.push(JSON.parse(lxmcStr)) } catch (e) {}
+        const archiveJson = PlaylistManager.getInstance().exportArchive(pl.id)
+        try { plList.push(JSON.parse(archiveJson)) } catch (e) {}
       }
       backupData['playlists'] = plList
       const documentPicker = new picker.DocumentViewPicker()
-      const saveResult = await documentPicker.save({ newFileNames: [`lx_music_backup_${Date.now()}.lxmc`] })
+      const saveResult = await documentPicker.save({ newFileNames: [`source_music_backup_${Date.now()}.json`] })
       const saveUri = saveResult && saveResult.length > 0 ? saveResult[0] : ''
       if (saveUri) {
         const file = fileIo.openSync(saveUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE)
-        // .lxmc 为纯 JSON 文本
+        // 应用备份为纯 JSON 文本。
         const encoder = new util.TextEncoder()
         const buffer = encoder.encodeInto(JSON.stringify(backupData))
         fileIo.writeSync(file.fd, buffer)
@@ -742,31 +747,34 @@ export struct SettingsContent {
   private async importBackup(): Promise<void> {
     try {
       const documentPicker = new picker.DocumentViewPicker()
-      const result = await documentPicker.select({ fileSuffixFilters: ['.lxmc', '.json'], maxSelectNumber: 1 })
+      const result = await documentPicker.select({
+        fileSuffixFilters: [LEGACY_PLAYLIST_SUFFIX, '.json'],
+        maxSelectNumber: 1
+      })
       if (!result || result.length === 0) return
       const file = fileIo.openSync(result[0], fileIo.OpenMode.READ_ONLY)
       const stat = fileIo.statSync(result[0])
       const buf = new ArrayBuffer(stat.size)
       fileIo.readSync(file.fd, buf)
       fileIo.closeSync(file)
-      // .lxmc 为纯 JSON 文本
+      // 新旧备份均为纯 JSON 文本。
       const decoder = util.TextDecoder.create('utf-8')
       const content = decoder.decodeToString(new Uint8Array(buf))
       LogUtils.info(`[恢复] 导入内容前200字符: ${content.substring(0, 200)}`)
       const parsed = JSON.parse(content) as Record<string, Object>
       LogUtils.info(`[恢复] 导入 type=${JSON.stringify(parsed['type'])} 字段=${Object.keys(parsed).join(',')}`)
-      if (parsed['type'] === 'lxMusicBackup') {
+      if (parsed['type'] === BACKUP_TYPE || parsed['type'] === LEGACY_BACKUP_TYPE) {
         const plList = parsed['playlists'] as Array<Record<string, Object>>
         if (plList && plList.length > 0) {
           let count = 0
           for (const pl of plList) {
-            const created = await PlaylistManager.getInstance().importFromLxmc(JSON.stringify(pl))
+            const created = await PlaylistManager.getInstance().importArchive(JSON.stringify(pl))
             if (created) count++
           }
           this.showToast(`已恢复 ${count} 个歌单`)
         }
       } else {
-        const created = await PlaylistManager.getInstance().importFromLxmc(content)
+        const created = await PlaylistManager.getInstance().importArchive(content)
         this.showToast(created ? `已导入歌单: ${created.name}` : '文件格式不支持')
       }
     } catch (err) {

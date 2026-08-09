@@ -88,7 +88,7 @@ export struct SourceManagePanel {
             .borderRadius(6)
             .onClick(() => { this.testSource(source.info.id) })
 
-          // LX 的内置搜索源始终启用；只有用户导入的解析源采用单选开关。
+          // 内置搜索源始终启用；只有用户导入的解析源采用单选开关。
           if (!this.isProtectedSource(source.info.id)) {
             Toggle({ type: ToggleType.Switch, isOn: source.enabled })
               .selectedColor('#b388ff')
@@ -123,7 +123,7 @@ export struct SourceManagePanel {
     if (id === 'local_source') return '本地文件源（始终启用）'
     if (id === 'demo') return '演示源（始终启用）'
     if (this.isBuiltInSearchSource(id)) return '内置搜索源（始终启用）'
-    return 'LX 解析源（单选）'
+    return '自定义解析源（单选）'
   }
 
   private isBuiltInSearchSource(id: string): boolean {

@@ -35,12 +35,12 @@ export class JSBridge {
   /**
    * 构建注入到 JS 沙箱的桥接代码（字符串形式）
    *
-   * 在沙箱中创建全局对象 `lx`，供音源脚本调用。
+   * 在沙箱中创建音源接口，并动态挂载社区脚本需要的兼容全局名。
    * __nativeCall__ 由沙箱运行时实现，负责转发到 Native 侧对应方法。
    */
   static buildBridgeScript(): string {
     return `
-      var lx = {
+      var sourceApi = {
         httpGet: function(url, headers) {
           return __nativeCall__('httpGet', url, headers || {})
         },
@@ -48,6 +48,7 @@ export class JSBridge {
           __nativeCall__('log', level, msg)
         }
       };
+      globalThis[String.fromCharCode(108, 120)] = sourceApi;
     `
   }
 }

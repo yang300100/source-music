@@ -12,13 +12,13 @@ const SOURCE_INIT_TIMEOUT_MS = 15000
  *
  * 基于鸿蒙系统 JSVM-API（libjsvm.so）提供完整的 JavaScript 执行环境：
  * 1. 创建隔离的 JS 虚拟机（VM + Env）
- * 2. 注入受限的 lx 全局环境（对齐原版 lx-music preload）
+ * 2. 注入受限的社区音源全局环境
  * 3. 执行用户导入的音源脚本
- * 4. 脚本的 lx.request 网络请求桥接到 ArkTS 网络层
+ * 4. 脚本的网络请求桥接到 ArkTS 网络层
  *
  * 安全措施（对齐原版）：
  * - 引擎隔离：脚本无法直接访问文件/系统
- * - 只注入白名单 API（__lx_request__/__lx_log__）
+ * - 只注入白名单 API（__source_request__/__source_log__）
  * - 禁用 eval（preload 脚本内覆盖）
  * - 超时终止：脚本 action 调用 5 秒超时
  */
@@ -80,7 +80,7 @@ export class JSSandbox {
   }
 
   /**
-   * 校验脚本是否为有效的 lx-music 音源格式（对齐原版 addUserApi 逻辑）
+   * 校验脚本是否为有效的 社区音源 音源格式（对齐原版 addUserApi 逻辑）
    *
    * 原版只检查：脚本开头必须包含块注释（以斜杠星号开头、星号斜杠结尾）
    *

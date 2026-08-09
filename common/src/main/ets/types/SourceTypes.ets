@@ -28,7 +28,7 @@ export interface SourceInstance {
   getLyric(songmid: string, fullSong?: MusicItem): Promise<LyricLine[]>
   getPlaylistInfo(listid: string): Promise<PlaylistInfo>
   getHotSearch(): Promise<HotSearchItem[]>
-  /** 支持解析的歌曲源列表（lx-music sources 语义；空 = 不限） */
+  /** 支持解析的歌曲源列表（社区音源 sources 语义；空 = 不限） */
   getSupportedSources(): string[]
 }
 

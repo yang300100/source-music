@@ -1,7 +1,7 @@
 import { hilog } from '@kit.PerformanceAnalysisKit'
 
 const DOMAIN = 0x0001
-const TAG = 'LxMusic'
+const TAG = 'SourceMusic'
 
 /**
  * 统一日志工具，封装 hilog

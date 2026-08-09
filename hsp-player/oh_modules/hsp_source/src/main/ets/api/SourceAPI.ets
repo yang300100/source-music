@@ -32,7 +32,7 @@ export abstract class BaseSource implements SourceInstance {
   abstract getHotSearch(): Promise<HotSearchItem[]>
 
   /**
-   * 该音源支持解析的歌曲源列表（lx-music LxSource.sources 语义）
+   * 该音源支持解析的歌曲源列表（社区音源 sources 语义）
    * 空数组 = 未声明/不限；非空时仅解析列表内的源
    */
   getSupportedSources(): string[] {

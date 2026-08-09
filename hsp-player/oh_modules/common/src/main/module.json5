@@ -2,7 +2,7 @@
   "module": {
     "name": "common",
     "type": "shared",
-    "description": "洛雪音乐公共基础模块",
+    "description": "源音乐公共基础模块",
     "deviceTypes": [
       "phone",
       "tablet",

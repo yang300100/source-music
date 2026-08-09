@@ -317,13 +317,13 @@ JSValue JsNativeRsaEncrypt(
     return JS_NewStringLen(context, encoded.c_str(), encoded.length());
 }
 
-void InstallLxNativeFunctions(JSContext *context)
+void InstallSourceNativeFunctions(JSContext *context)
 {
     JSValue global = JS_GetGlobalObject(context);
-    JS_SetPropertyStr(context, global, "__lx_native_aes_encrypt__",
-        JS_NewCFunction(context, JsNativeAesEncrypt, "__lx_native_aes_encrypt__", 4));
-    JS_SetPropertyStr(context, global, "__lx_native_rsa_encrypt__",
-        JS_NewCFunction(context, JsNativeRsaEncrypt, "__lx_native_rsa_encrypt__", 2));
+    JS_SetPropertyStr(context, global, "__source_native_aes_encrypt__",
+        JS_NewCFunction(context, JsNativeAesEncrypt, "__source_native_aes_encrypt__", 4));
+    JS_SetPropertyStr(context, global, "__source_native_rsa_encrypt__",
+        JS_NewCFunction(context, JsNativeRsaEncrypt, "__source_native_rsa_encrypt__", 2));
     JS_FreeValue(context, global);
 }
 
@@ -522,7 +522,7 @@ napi_value NapiQuickCreateVM(napi_env env, napi_callback_info)
         napi_throw_error(env, nullptr, "quickjs create context failed");
         return nullptr;
     }
-    InstallLxNativeFunctions(instance->context);
+    InstallSourceNativeFunctions(instance->context);
 
     int32_t handle = 0;
     {
@@ -616,7 +616,7 @@ napi_value NapiQuickSetNativeResult(napi_env env, napi_callback_info info)
 
     JSContext *context = instance->context;
     JSValue global = JS_GetGlobalObject(context);
-    JSValue function = JS_GetPropertyStr(context, global, "__lx_resolveRequest__");
+    JSValue function = JS_GetPropertyStr(context, global, "__source_resolveRequest__");
     if (JS_IsFunction(context, function)) {
         JSValue callArgs[3] = {
             JS_NewStringLen(context, requestId.c_str(), requestId.length()),

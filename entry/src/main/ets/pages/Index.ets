@@ -48,7 +48,7 @@ struct Index {
   private webController: webview.WebviewController = new webview.WebviewController()
   private webExecutor: WebJsExecutor = new WebJsExecutor()
 
-  /** JavaScriptProxy：Web 页面 lx.request 桥接到原生网络（由 WebJsExecutor 实现） */
+  /** JavaScriptProxy：Web 页面音源请求桥接到原生网络（由 WebJsExecutor 实现） */
   private player: PlayerEngine = PlayerEngine.getInstance()
   private syncTimer: number = -1
   private lastQueueFingerprint: string = ''
@@ -315,7 +315,7 @@ struct Index {
         .domStorageAccess(true)
         .javaScriptProxy({
           object: this.webExecutor,
-          name: 'lxNative',
+          name: 'sourceNative',
           methodList: ['nativeRequest'],
           controller: this.webController
         })
@@ -324,15 +324,15 @@ struct Index {
           this.webExecutor.markReady()
           JsExecutorRegistry.register(this.webExecutor)
           // 验证原生桥注入状态
-          this.webExecutor.evalScript(`JSON.stringify({ native: typeof globalThis.lxNative, reqMethod: typeof (globalThis.lxNative && globalThis.lxNative.nativeRequest), keys: globalThis.lxNative ? Object.keys(globalThis.lxNative) : [] })`)
+          this.webExecutor.evalScript(`JSON.stringify({ native: typeof globalThis.sourceNative, reqMethod: typeof (globalThis.sourceNative && globalThis.sourceNative.nativeRequest), keys: globalThis.sourceNative ? Object.keys(globalThis.sourceNative) : [] })`)
             .then((v: string) => { LogUtils.info(`[Web执行器] 注入验证: ${v}`) })
             .catch((e: Error) => { LogUtils.warn(`[Web执行器] 注入验证失败: ${e.message}`) })
-          // 原生桥自检：直接调用 lxNative.nativeRequest 并捕获调用错误
+          // 原生桥自检：直接调用 sourceNative.nativeRequest 并捕获调用错误
           this.webExecutor.evalScript(
-            `try { globalThis.lxNative.nativeRequest('https://www.baidu.com', '{}', 'basetest1'); globalThis.__bridgeTest__ = 'called' } catch(e) { globalThis.__bridgeTest__ = 'callerr:' + String(e) }`)
+            `try { globalThis.sourceNative.nativeRequest('https://www.baidu.com', '{}', 'basetest1'); globalThis.__bridgeTest__ = 'called' } catch(e) { globalThis.__bridgeTest__ = 'callerr:' + String(e) }`)
             .then((r: string) => {
               setTimeout(() => {
-                this.webExecutor.evalScript(`JSON.stringify({ test: globalThis.__bridgeTest__, errs: globalThis.__lx_errors__ || [] })`)
+                this.webExecutor.evalScript(`JSON.stringify({ test: globalThis.__bridgeTest__, errs: globalThis.__source_errors__ || [] })`)
                   .then((v: string) => { LogUtils.info(`[Web执行器] 桥自检结果: ${v}`) })
                   .catch((e: Error) => { LogUtils.warn(`[Web执行器] 桥自检读取失败: ${e.message}`) })
               }, 4000)

@@ -13,7 +13,7 @@ import {
 import { BaseSource } from '../api/SourceAPI'
 
 /**
- * 酷我音乐源（内置搜索音源，与原版 lx-music 内置音源思路一致）
+ * 酷我音乐源（内置搜索音源，与原版 社区音源 内置音源思路一致）
  *
  * - 搜索: http://search.kuwo.cn/r.s
  * - 播放: http://antiserver.kuwo.cn/anti.s?type=convert_url&rid=
@@ -41,7 +41,7 @@ export class KuwoSource extends BaseSource {
     try {
       const url = `${KuwoSource.SEARCH_URL}?all=${encodeURIComponent(query)}&ft=music&itemset=web_2013&client=kt&pn=${page - 1}&rn=30&rformat=json&encoding=utf8`
       // r.s 接口返回单引号 JSON（{'key':'value'}），JSON.parse 无法直接解析，
-      // 与 lx-music 内置酷我源一致：先获取原始文本再转换
+      // 与 社区音源 内置酷我源一致：先获取原始文本再转换
       const body = await NetUtils.getString(url)
       if (!body) return { list: [], total: 0, limit: 30, page, source: SourceType.KW }
       let data: Record<string, Object> | null = null

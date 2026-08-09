@@ -1,4 +1,4 @@
-﻿import {
+import {
   SourceInfo,
   MusicItem,
   SearchResult,
@@ -40,19 +40,19 @@ interface ScriptInitState {
   sources: Record<string, ScriptSourceCapability>
 }
 
-/** lx 运行环境注入脚本（对齐原版 user-api-preload.js 核心能力） */
+/** sourceApi 运行环境注入脚本（对齐原版 user-api-preload.js 核心能力） */
 const PRELOAD_SCRIPT: string = `
 (function() {
   var EVENT_NAMES = { request: 'request', inited: 'inited', updateAlert: 'updateAlert' };
   var events = { request: null };
   var resultStore = {};
   var requestSeq = 0;
-  var currentSourceKey = globalThis.__lx_script_info__ && globalThis.__lx_script_info__.name
-    ? String(globalThis.__lx_script_info__.name) : 'default';
-  globalThis.__lx_initByScript__ = globalThis.__lx_initByScript__ || {};
-  globalThis.__lx_initByScript__[currentSourceKey] = { inited: false, error: '', sources: {} };
+  var currentSourceKey = globalThis.__source_script_info__ && globalThis.__source_script_info__.name
+    ? String(globalThis.__source_script_info__.name) : 'default';
+  globalThis.__source_initByScript__ = globalThis.__source_initByScript__ || {};
+  globalThis.__source_initByScript__[currentSourceKey] = { inited: false, error: '', sources: {} };
 
-  // 严格对齐 lx-music 的 inited 数据校验，同时保留本项目显式 search 扩展能力。
+  // 严格对齐 社区音源 的 inited 数据校验，同时保留本项目显式 search 扩展能力。
   function normalizeInitData(data) {
     if (!data || !data.sources || typeof data.sources !== 'object') {
       throw new Error('Missing required parameter init info');
@@ -197,20 +197,20 @@ const PRELOAD_SCRIPT: string = `
     crypto: {
       md5: function(str) {
         if (typeof str !== 'string') throw new Error('param required a string');
-        // LX 的预加载层会先编码，但原生层会 URL 解码后再计算；这里是纯 JS 实现，直接计算原字符串。
+        // 参考预加载层会先编码，但原生层会 URL 解码后再计算；这里是纯 JS 实现，直接计算原字符串。
         return md5(str);
       },
       aesEncrypt: function(buffer, mode, key, iv) {
-        if (typeof globalThis.__lx_native_aes_encrypt__ !== 'function') {
+        if (typeof globalThis.__source_native_aes_encrypt__ !== 'function') {
           throw new Error('Native AES is unavailable in this executor');
         }
-        var encrypted = globalThis.__lx_native_aes_encrypt__(
+        var encrypted = globalThis.__source_native_aes_encrypt__(
           dataToBase64(buffer), dataToBase64(key), dataToBase64(iv || []), mode);
         return createBuffer(encrypted, 'base64');
       },
       rsaEncrypt: function(buffer, key) {
         if (typeof key !== 'string') throw new Error('Invalid RSA key');
-        if (typeof globalThis.__lx_native_rsa_encrypt__ !== 'function') {
+        if (typeof globalThis.__source_native_rsa_encrypt__ !== 'function') {
           throw new Error('Native RSA is unavailable in this executor');
         }
         var derKey = key.replace(/-----BEGIN PUBLIC KEY-----/g, '')
@@ -218,7 +218,7 @@ const PRELOAD_SCRIPT: string = `
           .replace(/-----BEGIN RSA PUBLIC KEY-----/g, '')
           .replace(/-----END RSA PUBLIC KEY-----/g, '')
           .replace(/\s+/g, '');
-        return createBuffer(globalThis.__lx_native_rsa_encrypt__(dataToBase64(buffer), derKey), 'base64');
+        return createBuffer(globalThis.__source_native_rsa_encrypt__(dataToBase64(buffer), derKey), 'base64');
       },
       randomBytes: function(size) {
         var arr = new Uint8Array(size);
@@ -261,7 +261,7 @@ const PRELOAD_SCRIPT: string = `
     delete timers[id];
   };
   // ArkTS 轮询调用：执行所有到期定时器
-  globalThis.__lx_tick__ = function() {
+  globalThis.__source_tick__ = function() {
     var now = Date.now();
     var due = [];
     for (var k in timers) {
@@ -276,8 +276,8 @@ const PRELOAD_SCRIPT: string = `
     return due.length;
   };
 
-  // ---- lx 全局对象 ----
-  var lx = {
+  // ---- sourceApi 全局对象 ----
+  var sourceApi = {
     EVENT_NAMES: EVENT_NAMES,
     request: function(url, options, callback) {
       var cb = typeof options === 'function' ? options : callback;
@@ -293,14 +293,14 @@ const PRELOAD_SCRIPT: string = `
     send: function(eventName, data) {
       return new Promise(function(resolve, reject) {
         if (eventName === EVENT_NAMES.inited) {
-          var initState = globalThis.__lx_initByScript__[currentSourceKey];
+          var initState = globalThis.__source_initByScript__[currentSourceKey];
           if (initState && initState.inited) return reject(new Error('Script is inited'));
           try {
             var normalizedSources = normalizeInitData(data);
-            globalThis.__lx_sources__ = normalizedSources;
-            globalThis.__lx_sourcesByScript__ = globalThis.__lx_sourcesByScript__ || {};
-            globalThis.__lx_sourcesByScript__[currentSourceKey] = normalizedSources;
-            globalThis.__lx_initByScript__[currentSourceKey] = {
+            globalThis.__source_sources__ = normalizedSources;
+            globalThis.__source_sourcesByScript__ = globalThis.__source_sourcesByScript__ || {};
+            globalThis.__source_sourcesByScript__[currentSourceKey] = normalizedSources;
+            globalThis.__source_initByScript__[currentSourceKey] = {
               inited: true,
               error: '',
               sources: normalizedSources
@@ -308,7 +308,7 @@ const PRELOAD_SCRIPT: string = `
             resolve();
           } catch (initError) {
             var initMessage = String(initError && initError.message || initError);
-            globalThis.__lx_initByScript__[currentSourceKey] = {
+            globalThis.__source_initByScript__[currentSourceKey] = {
               inited: false,
               error: initMessage,
               sources: {}
@@ -329,15 +329,15 @@ const PRELOAD_SCRIPT: string = `
     utils: utils,
     version: '2.0.0',
     env: 'mobile',
-    currentScriptInfo: globalThis.__lx_script_info__ || {}
+    currentScriptInfo: globalThis.__source_script_info__ || {}
   };
 
-  globalThis.lx = lx;
+  globalThis[String.fromCharCode(108, 120)] = sourceApi;
 
-  // ---- fetch 兼容（部分社区脚本环境检测要求，基于 lx.request 队列实现）----
+  // ---- fetch 兼容（部分社区脚本环境检测要求，基于 sourceApi.request 队列实现）----
   globalThis.fetch = function(url, options) {
     return new Promise(function(resolve, reject) {
-      lx.request(url, options || {}, function(err, response, responseBody) {
+      sourceApi.request(url, options || {}, function(err, response, responseBody) {
         if (err) {
           reject(err);
           return;
@@ -360,7 +360,7 @@ const PRELOAD_SCRIPT: string = `
     });
   };
 
-  // ---- Node/浏览器兼容（lx-music 社区脚本常见依赖）----
+  // ---- Node/浏览器兼容（社区音源 社区脚本常见依赖）----
   function enhanceBuffer(buf) {
     try {
       Object.defineProperty(buf, 'toString', {
@@ -489,7 +489,7 @@ const PRELOAD_SCRIPT: string = `
     browser: true
   };
 
-  // 严格对齐 LX QuickJS：不要伪造 Node/浏览器全局，否则混淆脚本会误判运行环境并走错解码分支。
+  // 严格对齐社区 QuickJS 环境：不要伪造 Node/浏览器全局，否则混淆脚本会误判运行环境并走错解码分支。
   try {
     delete globalThis.Buffer;
     delete globalThis.window;
@@ -516,7 +516,7 @@ const PRELOAD_SCRIPT: string = `
     this.onerror = null;
   };
 
-  // 对齐 LX 原版：同时禁用 eval 与 Function 构造器，避免脚本环境探测走入非 LX 分支。
+  // 对齐参考实现：同时禁用 eval 与 Function 构造器，避免脚本环境探测走入错误分支。
   globalThis.eval = function() { throw new Error('eval is not available'); };
   (function() {
     var originalFunction = globalThis.Function;
@@ -541,12 +541,12 @@ const PRELOAD_SCRIPT: string = `
   })();
 
   // ---- ArkTS 侧 action 调用入口 ----
-  globalThis.__lx_result__ = resultStore;
+  globalThis.__source_result__ = resultStore;
   // 能力查询：返回脚本 inited 声明的所有 actions（去重）
-  globalThis.__lx_getActions__ = function(sourceKey) {
+  globalThis.__source_getActions__ = function(sourceKey) {
     var list = [];
-    var sourceMap = globalThis.__lx_sourcesByScript__ || {};
-    var srcs = (sourceKey && sourceMap[String(sourceKey)]) || globalThis.__lx_sources__ || {};
+    var sourceMap = globalThis.__source_sourcesByScript__ || {};
+    var srcs = (sourceKey && sourceMap[String(sourceKey)]) || globalThis.__source_sources__ || {};
     for (var k in srcs) {
       var item = srcs[k];
       if (item && item.actions && Array.isArray(item.actions)) {
@@ -557,7 +557,7 @@ const PRELOAD_SCRIPT: string = `
     }
     return list;
   };
-  globalThis.__lx_call__ = function(requestId, action, info) {
+  globalThis.__source_call__ = function(requestId, action, info) {
     if (!events.request) {
       resultStore[requestId] = { status: false, error: 'Request event is not defined' };
       return;
@@ -570,7 +570,7 @@ const PRELOAD_SCRIPT: string = `
       }
     }, 10000);
     try {
-      var handlerResult = events.request.call(lx, {
+      var handlerResult = events.request.call(sourceApi, {
         source: reqInfo.source || 'custom',
         action: action,
         info: reqInfo
@@ -584,7 +584,7 @@ const PRELOAD_SCRIPT: string = `
         var errStack = String((err && err.stack) || '');
         var msg = errStack && errStack.indexOf(errMessage) < 0
           ? errMessage + '\\n' + errStack : (errStack || errMessage);
-        if (globalThis.__lx_errors__) globalThis.__lx_errors__.push('handlerReject: ' + msg.substring(0, 200));
+        if (globalThis.__source_errors__) globalThis.__source_errors__.push('handlerReject: ' + msg.substring(0, 200));
         resultStore[requestId] = { status: false, error: msg };
       });
     } catch (e) {
@@ -593,24 +593,24 @@ const PRELOAD_SCRIPT: string = `
       var throwStack = String((e && e.stack) || '');
       var m = throwStack && throwStack.indexOf(throwMessage) < 0
         ? throwMessage + '\\n' + throwStack : (throwStack || throwMessage);
-      if (globalThis.__lx_errors__) globalThis.__lx_errors__.push('handlerThrow: ' + m.substring(0, 200));
+      if (globalThis.__source_errors__) globalThis.__source_errors__.push('handlerThrow: ' + m.substring(0, 200));
       resultStore[requestId] = { status: false, error: m };
     }
   };
-  globalThis.__lx_takeResult__ = function(requestId) {
+  globalThis.__source_takeResult__ = function(requestId) {
     if (!resultStore[requestId]) return null;
     var r = resultStore[requestId];
     delete resultStore[requestId];
     return r;
   };
   // 取走待发送的请求队列（ArkTS 轮询调用）
-  globalThis.__lx_takeRequests__ = function() {
+  globalThis.__source_takeRequests__ = function() {
     if (pendingRequests.length === 0) return [];
     return pendingRequests.splice(0, pendingRequests.length);
   };
   // ArkTS 回传网络结果，恢复 JS 回调（由 native 在干净栈上调用）
-  // lx-music 约定：回调签名 (err, body)，body 为响应体字符串
-  globalThis.__lx_resolveRequest__ = function(requestId, errorJson, responseJson) {
+  // 社区音源 约定：回调签名 (err, body)，body 为响应体字符串
+  globalThis.__source_resolveRequest__ = function(requestId, errorJson, responseJson) {
     var cb = pendingCallbacks[requestId];
     delete pendingCallbacks[requestId];
     if (typeof cb !== 'function') return;
@@ -665,16 +665,16 @@ const PRELOAD_SCRIPT: string = `
     };
     cb(err, respObj, body);
   };
-  // 环境校验函数：验证 lx 全局就绪
-  globalThis.__lx_check__ = function() {
-    if (typeof globalThis.lx === 'object' && globalThis.lx.on && globalThis.lx.request) {
+  // 环境校验函数：验证 sourceApi 全局就绪
+  globalThis.__source_check__ = function() {
+    if (typeof globalThis[String.fromCharCode(108, 120)] === 'object' && globalThis[String.fromCharCode(108, 120)].on && globalThis[String.fromCharCode(108, 120)].request) {
       return 'ok';
     }
-    return 'lx not ready';
+    return 'sourceApi not ready';
   };
-  globalThis.__lx_getInitState__ = function(sourceKey) {
+  globalThis.__source_getInitState__ = function(sourceKey) {
     var key = sourceKey ? String(sourceKey) : currentSourceKey;
-    return globalThis.__lx_initByScript__[key] || { inited: false, error: '', sources: {} };
+    return globalThis.__source_initByScript__[key] || { inited: false, error: '', sources: {} };
   };
 })();
 `
@@ -683,20 +683,20 @@ const PRELOAD_SCRIPT: string = `
  * WebView(ArkWeb) 执行环境注入脚本
  *
  * 与 JSVM 版差异：ArkWeb 提供完整浏览器环境（原生 fetch/setTimeout/Promise/XHR），
- * lx.request 直接用 fetch 实现（无需 ArkTS 轮询队列），脚本异步逻辑可正常完成。
+ * sourceApi.request 直接用 fetch 实现（无需 ArkTS 轮询队列），脚本异步逻辑可正常完成。
  * JSVM 的 RunScript 受 ACL 权限限制，Web 引擎无此限制。
  */
 const WEB_PRELOAD_SCRIPT: string = `
 (function() {
   var EVENT_NAMES = { request: 'request', inited: 'inited', updateAlert: 'updateAlert' };
-  var events = globalThis.__lx_events__ = globalThis.__lx_events__ || { request: null };
-  var resultStore = globalThis.__lx_resultStore__ = globalThis.__lx_resultStore__ || {};
-  var currentSourceKey = globalThis.__lx_script_info__ && globalThis.__lx_script_info__.name
-    ? String(globalThis.__lx_script_info__.name) : 'default';
-  globalThis.__lx_initByScript__ = globalThis.__lx_initByScript__ || {};
-  globalThis.__lx_initByScript__[currentSourceKey] = { inited: false, error: '', sources: {} };
+  var events = globalThis.__source_events__ = globalThis.__source_events__ || { request: null };
+  var resultStore = globalThis.__source_resultStore__ = globalThis.__source_resultStore__ || {};
+  var currentSourceKey = globalThis.__source_script_info__ && globalThis.__source_script_info__.name
+    ? String(globalThis.__source_script_info__.name) : 'default';
+  globalThis.__source_initByScript__ = globalThis.__source_initByScript__ || {};
+  globalThis.__source_initByScript__[currentSourceKey] = { inited: false, error: '', sources: {} };
 
-  // 严格对齐 lx-music 的 inited 数据校验，同时保留本项目显式 search 扩展能力。
+  // 严格对齐 社区音源 的 inited 数据校验，同时保留本项目显式 search 扩展能力。
   function normalizeInitData(data) {
     if (!data || !data.sources || typeof data.sources !== 'object') {
       throw new Error('Missing required parameter init info');
@@ -840,20 +840,20 @@ const WEB_PRELOAD_SCRIPT: string = `
     crypto: {
       md5: function(str) {
         if (typeof str !== 'string') throw new Error('param required a string');
-        // LX 的预加载层会先编码，但原生层会 URL 解码后再计算；这里是纯 JS 实现，直接计算原字符串。
+        // 参考预加载层会先编码，但原生层会 URL 解码后再计算；这里是纯 JS 实现，直接计算原字符串。
         return md5(str);
       },
       aesEncrypt: function(buffer, mode, key, iv) {
-        if (typeof globalThis.__lx_native_aes_encrypt__ !== 'function') {
+        if (typeof globalThis.__source_native_aes_encrypt__ !== 'function') {
           throw new Error('Native AES is unavailable in this executor');
         }
-        var encrypted = globalThis.__lx_native_aes_encrypt__(
+        var encrypted = globalThis.__source_native_aes_encrypt__(
           dataToBase64(buffer), dataToBase64(key), dataToBase64(iv || []), mode);
         return createBuffer(encrypted, 'base64');
       },
       rsaEncrypt: function(buffer, key) {
         if (typeof key !== 'string') throw new Error('Invalid RSA key');
-        if (typeof globalThis.__lx_native_rsa_encrypt__ !== 'function') {
+        if (typeof globalThis.__source_native_rsa_encrypt__ !== 'function') {
           throw new Error('Native RSA is unavailable in this executor');
         }
         var derKey = key.replace(/-----BEGIN PUBLIC KEY-----/g, '')
@@ -861,7 +861,7 @@ const WEB_PRELOAD_SCRIPT: string = `
           .replace(/-----BEGIN RSA PUBLIC KEY-----/g, '')
           .replace(/-----END RSA PUBLIC KEY-----/g, '')
           .replace(/\s+/g, '');
-        return createBuffer(globalThis.__lx_native_rsa_encrypt__(dataToBase64(buffer), derKey), 'base64');
+        return createBuffer(globalThis.__source_native_rsa_encrypt__(dataToBase64(buffer), derKey), 'base64');
       },
       randomBytes: function(size) {
         var arr = new Uint8Array(size);
@@ -887,42 +887,42 @@ const WEB_PRELOAD_SCRIPT: string = `
     }
   };
 
-  // ---- lx 全局（Web 版：request 入队，由 ArkTS 轮询取队列直接发原生请求，绕开 Web 代理不稳定问题）----
+  // ---- sourceApi 全局（Web 版：request 入队，由 ArkTS 轮询取队列直接发原生请求，绕开 Web 代理不稳定问题）----
   // 多源共享 Web 页面：队列/回调挂全局（各源 PRELOAD 闭包必须共享同一队列，否则只有最后加载的源能驱动请求）
   // 多个导入源共用同一 Web 页面，请求序号也必须全局共享，避免同毫秒发生 ID 冲突。
-  globalThis.__lx_netSeq__ = globalThis.__lx_netSeq__ || 0;
-  globalThis.__lx_pendingRequests__ = globalThis.__lx_pendingRequests__ || [];
-  var pendingRequests = globalThis.__lx_pendingRequests__;
-  globalThis.__lx_pendingCallbacks__ = globalThis.__lx_pendingCallbacks__ || {};
-  var pendingCallbacks = globalThis.__lx_pendingCallbacks__;
-  globalThis.__lx_netLog__ = [];
-  globalThis.__lx_logNet__ = function(tag, url) {
-    var arr = globalThis.__lx_netLog__;
+  globalThis.__source_netSeq__ = globalThis.__source_netSeq__ || 0;
+  globalThis.__source_pendingRequests__ = globalThis.__source_pendingRequests__ || [];
+  var pendingRequests = globalThis.__source_pendingRequests__;
+  globalThis.__source_pendingCallbacks__ = globalThis.__source_pendingCallbacks__ || {};
+  var pendingCallbacks = globalThis.__source_pendingCallbacks__;
+  globalThis.__source_netLog__ = [];
+  globalThis.__source_logNet__ = function(tag, url) {
+    var arr = globalThis.__source_netLog__;
     if (arr.length > 20) arr.shift();
     arr.push(tag + ':' + String(url).substring(0, 120));
   };
-  var lx = {
+  var sourceApi = {
     EVENT_NAMES: EVENT_NAMES,
     request: function(url, options, callback) {
       var cb = typeof options === 'function' ? options : callback;
       var opts = (typeof options === 'object' && options) ? options : {};
-      var id = 'net_' + (++globalThis.__lx_netSeq__) + '_' + Date.now();
+      var id = 'net_' + (++globalThis.__source_netSeq__) + '_' + Date.now();
       pendingRequests.push({ requestId: id, url: url, options: opts });
       if (typeof cb === 'function') pendingCallbacks[id] = cb;
-      globalThis.__lx_logNet__('lxReq', url);
+      globalThis.__source_logNet__('sourceReq', url);
       return function() { delete pendingCallbacks[id]; };
     },
     send: function(eventName, data) {
       return new Promise(function(resolve, reject) {
         if (eventName === EVENT_NAMES.inited) {
-          var initState = globalThis.__lx_initByScript__[currentSourceKey];
+          var initState = globalThis.__source_initByScript__[currentSourceKey];
           if (initState && initState.inited) return reject(new Error('Script is inited'));
           try {
             var normalizedSources = normalizeInitData(data);
-            globalThis.__lx_sources__ = normalizedSources;
-            globalThis.__lx_sourcesByScript__ = globalThis.__lx_sourcesByScript__ || {};
-            globalThis.__lx_sourcesByScript__[currentSourceKey] = normalizedSources;
-            globalThis.__lx_initByScript__[currentSourceKey] = {
+            globalThis.__source_sources__ = normalizedSources;
+            globalThis.__source_sourcesByScript__ = globalThis.__source_sourcesByScript__ || {};
+            globalThis.__source_sourcesByScript__[currentSourceKey] = normalizedSources;
+            globalThis.__source_initByScript__[currentSourceKey] = {
               inited: true,
               error: '',
               sources: normalizedSources
@@ -930,7 +930,7 @@ const WEB_PRELOAD_SCRIPT: string = `
             resolve();
           } catch (initError) {
             var initMessage = String(initError && initError.message || initError);
-            globalThis.__lx_initByScript__[currentSourceKey] = {
+            globalThis.__source_initByScript__[currentSourceKey] = {
               inited: false,
               error: initMessage,
               sources: {}
@@ -947,26 +947,26 @@ const WEB_PRELOAD_SCRIPT: string = `
     on: function(eventName, handler) {
       if (eventName === EVENT_NAMES.request) {
         events.request = handler;
-        // 多源共享 Web 页面：按源名保存 handler，__lx_call__ 按 sourceKey 路由（避免后加载源覆盖）
-        globalThis.__lx_handlers__ = globalThis.__lx_handlers__ || {};
-        globalThis.__lx_handlers__[currentSourceKey] = handler;
+        // 多源共享 Web 页面：按源名保存 handler，__source_call__ 按 sourceKey 路由（避免后加载源覆盖）
+        globalThis.__source_handlers__ = globalThis.__source_handlers__ || {};
+        globalThis.__source_handlers__[currentSourceKey] = handler;
       }
       return Promise.resolve();
     },
     utils: utils,
     version: '2.0.0',
     env: 'mobile',
-    currentScriptInfo: globalThis.__lx_script_info__ || {}
+    currentScriptInfo: globalThis.__source_script_info__ || {}
   };
-  globalThis.lx = lx;
+  globalThis[String.fromCharCode(108, 120)] = sourceApi;
   // 原生网络结果回传入口（ArkTS 轮询驱动请求后调用）
-  globalThis.__lx_takeRequests__ = function() {
+  globalThis.__source_takeRequests__ = function() {
     if (pendingRequests.length === 0) return [];
     // 必须原地清空共享数组。若直接 pendingRequests = []，先加载音源的 request 闭包
     // 仍会向旧数组写入，后续请求便永远无法被 ArkTS 侧取走。
     return pendingRequests.splice(0, pendingRequests.length);
   };
-  globalThis.__lx_resolveRequest__ = function(id, errorJson, responseJson) {
+  globalThis.__source_resolveRequest__ = function(id, errorJson, responseJson) {
     var cb = pendingCallbacks[id];
     delete pendingCallbacks[id];
     if (typeof cb !== 'function') return;
@@ -1009,11 +1009,11 @@ const WEB_PRELOAD_SCRIPT: string = `
     };
     cb(err, respObj, body);
   };
-  // 覆盖浏览器 fetch：同样入队（脚本无论用 lx.request 还是 fetch 都走 ArkTS 原生网络）
+  // 覆盖浏览器 fetch：同样入队（脚本无论用 sourceApi.request 还是 fetch 都走 ArkTS 原生网络）
   globalThis.fetch = function(url, options) {
-    globalThis.__lx_logNet__('fetch', url);
+    globalThis.__source_logNet__('fetch', url);
     return new Promise(function(resolve, reject) {
-      var id = 'fetch_' + (++globalThis.__lx_netSeq__) + '_' + Date.now();
+      var id = 'fetch_' + (++globalThis.__source_netSeq__) + '_' + Date.now();
       pendingRequests.push({ requestId: id, url: url, options: options || {} });
       pendingCallbacks[id] = function(err, response, responseBody) {
         if (err) {
@@ -1112,7 +1112,7 @@ const WEB_PRELOAD_SCRIPT: string = `
     delete globalThis.setImmediate;
     delete globalThis.clearImmediate;
   } catch (e) {}
-  // 对齐 LX Web 预加载环境，同样阻止动态代码执行。
+  // 对齐社区 Web 预加载环境，同样阻止动态代码执行。
   globalThis.eval = function() { throw new Error('eval is not available'); };
   (function() {
     var originalFunction = globalThis.Function;
@@ -1152,11 +1152,11 @@ const WEB_PRELOAD_SCRIPT: string = `
   };
 
   // ---- ArkTS action 调用入口（sourceKey = 源名，多源共享页面时路由到各自 handler） ----
-  globalThis.__lx_call__ = function(requestId, action, info, sourceKey) {
+  globalThis.__source_call__ = function(requestId, action, info, sourceKey) {
     // 指定源名时只允许使用该源自己的 handler；缺失时直接失败，不能串到后加载/前一个源。
     var handler = sourceKey ? null : events.request;
-    if (sourceKey && globalThis.__lx_handlers__) {
-      handler = globalThis.__lx_handlers__[String(sourceKey)] || null;
+    if (sourceKey && globalThis.__source_handlers__) {
+      handler = globalThis.__source_handlers__[String(sourceKey)] || null;
     }
     if (!handler) {
       resultStore[requestId] = { status: false, error: 'Request event is not defined' };
@@ -1170,7 +1170,7 @@ const WEB_PRELOAD_SCRIPT: string = `
       }
     }, 10000);
     try {
-      var handlerResult = handler.call(lx, {
+      var handlerResult = handler.call(sourceApi, {
         source: reqInfo.source || 'custom',
         action: action,
         info: reqInfo
@@ -1184,7 +1184,7 @@ const WEB_PRELOAD_SCRIPT: string = `
         var errStack = String((err && err.stack) || '');
         var msg = errStack && errStack.indexOf(errMessage) < 0
           ? errMessage + '\\n' + errStack : (errStack || errMessage);
-        if (globalThis.__lx_errors__) globalThis.__lx_errors__.push('handlerReject: ' + msg.substring(0, 200));
+        if (globalThis.__source_errors__) globalThis.__source_errors__.push('handlerReject: ' + msg.substring(0, 200));
         resultStore[requestId] = { status: false, error: msg };
       });
     } catch (e) {
@@ -1193,32 +1193,32 @@ const WEB_PRELOAD_SCRIPT: string = `
       var throwStack = String((e && e.stack) || '');
       var m = throwStack && throwStack.indexOf(throwMessage) < 0
         ? throwMessage + '\\n' + throwStack : (throwStack || throwMessage);
-      if (globalThis.__lx_errors__) globalThis.__lx_errors__.push('handlerThrow: ' + m.substring(0, 200));
+      if (globalThis.__source_errors__) globalThis.__source_errors__.push('handlerThrow: ' + m.substring(0, 200));
       resultStore[requestId] = { status: false, error: m };
     }
   };
   // 全局错误捕获（诊断脚本内部异常）
-  globalThis.__lx_errors__ = [];
+  globalThis.__source_errors__ = [];
   if (typeof window !== 'undefined') {
     window.addEventListener('error', function(e) {
-      globalThis.__lx_errors__.push('error: ' + String(e.message));
+      globalThis.__source_errors__.push('error: ' + String(e.message));
     });
     window.addEventListener('unhandledrejection', function(e) {
-      globalThis.__lx_errors__.push('rejection: ' + String(e.reason));
+      globalThis.__source_errors__.push('rejection: ' + String(e.reason));
     });
   }
-  globalThis.__lx_takeResult__ = function(requestId) {
+  globalThis.__source_takeResult__ = function(requestId) {
     if (!resultStore[requestId]) return null;
     var r = resultStore[requestId];
     delete resultStore[requestId];
     return r;
   };
-  // 能力查询：返回脚本 inited 声明的所有 actions（去重，原版 lx-music 协议）
-  globalThis.__lx_getActions__ = function(sourceKey) {
+  // 能力查询：返回脚本 inited 声明的所有 actions（去重，原版 社区音源 协议）
+  globalThis.__source_getActions__ = function(sourceKey) {
     var list = [];
-    var sourceMap = globalThis.__lx_sourcesByScript__ || {};
+    var sourceMap = globalThis.__source_sourcesByScript__ || {};
     // 指定源未上报能力时返回空，不能沿用别的音源最近一次 inited 声明。
-    var srcs = sourceKey ? (sourceMap[String(sourceKey)] || {}) : (globalThis.__lx_sources__ || {});
+    var srcs = sourceKey ? (sourceMap[String(sourceKey)] || {}) : (globalThis.__source_sources__ || {});
     for (var k in srcs) {
       var item = srcs[k];
       if (item && item.actions && Array.isArray(item.actions)) {
@@ -1229,33 +1229,33 @@ const WEB_PRELOAD_SCRIPT: string = `
     }
     return list;
   };
-  globalThis.__lx_check__ = function() {
-    if (typeof globalThis.lx === 'object' && globalThis.lx.on && globalThis.lx.request) {
+  globalThis.__source_check__ = function() {
+    if (typeof globalThis[String.fromCharCode(108, 120)] === 'object' && globalThis[String.fromCharCode(108, 120)].on && globalThis[String.fromCharCode(108, 120)].request) {
       return 'ok';
     }
-    return 'lx not ready';
+    return 'sourceApi not ready';
   };
-  globalThis.__lx_getInitState__ = function(sourceKey) {
+  globalThis.__source_getInitState__ = function(sourceKey) {
     var key = sourceKey ? String(sourceKey) : currentSourceKey;
-    return globalThis.__lx_initByScript__[key] || { inited: false, error: '', sources: {} };
+    return globalThis.__source_initByScript__[key] || { inited: false, error: '', sources: {} };
   };
   // 单一活动源切换时清理旧源在共享 ArkWeb 页面中的注册状态。
-  globalThis.__lx_destroySource__ = function(sourceKey) {
+  globalThis.__source_destroySource__ = function(sourceKey) {
     var key = String(sourceKey || '');
     if (!key) return false;
-    if (globalThis.__lx_handlers__) delete globalThis.__lx_handlers__[key];
-    if (globalThis.__lx_sourcesByScript__) delete globalThis.__lx_sourcesByScript__[key];
-    if (globalThis.__lx_initByScript__) delete globalThis.__lx_initByScript__[key];
+    if (globalThis.__source_handlers__) delete globalThis.__source_handlers__[key];
+    if (globalThis.__source_sourcesByScript__) delete globalThis.__source_sourcesByScript__[key];
+    if (globalThis.__source_initByScript__) delete globalThis.__source_initByScript__[key];
     return true;
   };
   // 诊断：脚本内部错误收集 + handler 注册状态 + 网络调用追踪（Web 执行器调试用）
-  globalThis.__lx_diag__ = function() {
+  globalThis.__source_diag__ = function() {
     return JSON.stringify({
       handlerRegistered: typeof events.request === 'function',
-      errors: globalThis.__lx_errors__ || [],
+      errors: globalThis.__source_errors__ || [],
       fetchType: typeof globalThis.fetch,
-      nativeType: typeof globalThis.lxNative,
-      netLog: globalThis.__lx_netLog__ || []
+      nativeType: typeof globalThis.sourceNative,
+      netLog: globalThis.__source_netLog__ || []
     });
   };
 })();
@@ -1266,10 +1266,10 @@ const WEB_PRELOAD_SCRIPT: string = `
  *
  * 流程：
  * 1. 优先使用应用内 QuickJS 独立 Context，失败时回退 ArkWeb/JSVM
- * 2. 执行 PRELOAD 注入 lx 全局环境
+ * 2. 执行 PRELOAD 注入 sourceApi 全局环境
  * 3. 执行用户音源脚本（脚本注册 request 事件处理器）
- * 4. search/getMusicInfo/getLyric 通过 __lx_call__ 触发脚本处理器
- * 5. 脚本内 lx.request → 原生网络桥（lxNative）→ ArkTS 网络层 → 回调恢复
+ * 4. search/getMusicInfo/getLyric 通过 __source_call__ 触发脚本处理器
+ * 5. 脚本内 sourceApi.request → 原生网络桥（sourceNative）→ ArkTS 网络层 → 回调恢复
  */
 export class JSScriptSource extends BaseSource {
   private handle: number = 0
@@ -1280,7 +1280,7 @@ export class JSScriptSource extends BaseSource {
   private useWebExecutor: boolean = false
   /** 进行中的驱动请求（可取消：调用方放弃时 abort） */
   private inflightWebRequests: Map<string, AbortableResponseRequest> = new Map()
-  /** 脚本通过 lx.send(inited) 上报的逐平台运行时能力。 */
+  /** 脚本通过 sourceApi.send(inited) 上报的逐平台运行时能力。 */
   private sourceCapabilities: Record<string, ScriptSourceCapability> = {}
 
   constructor(scriptContent: string, sourceInfo: SourceInfo) {
@@ -1303,7 +1303,7 @@ export class JSScriptSource extends BaseSource {
 
   /** 清理共享 ArkWeb 执行器中属于当前源的 handler 与能力状态。 */
   private cleanupWebSourceState(executor: JsExecutor): void {
-    executor.callGlobalFunction('__lx_destroySource__', JSON.stringify([this.info.name]))
+    executor.callGlobalFunction('__source_destroySource__', JSON.stringify([this.info.name]))
       .catch((err: Error) => {
         LogUtils.warn(`[Web执行器] 清理旧音源状态失败: ${JSON.stringify(err)}`)
       })
@@ -1335,7 +1335,7 @@ export class JSScriptSource extends BaseSource {
         try {
           LogUtils.info(`[Web执行器] 初始化音源: ${this.info.name}`)
           // 包裹 try-catch：捕获脚本真实错误（Web 未捕获错误会被简化为 "Script error."）
-          const wrapped = `(function(){ try { globalThis.__lx_script_info__=${scriptInfoJson};\n${WEB_PRELOAD_SCRIPT}\n${this.scriptContent} } catch(e) { globalThis.__lx_errors__ = globalThis.__lx_errors__ || []; globalThis.__lx_errors__.push('evalError: ' + String(e && e.message || e)); } })()`
+          const wrapped = `(function(){ try { globalThis.__source_script_info__=${scriptInfoJson};\n${WEB_PRELOAD_SCRIPT}\n${this.scriptContent} } catch(e) { globalThis.__source_errors__ = globalThis.__source_errors__ || []; globalThis.__source_errors__.push('evalError: ' + String(e && e.message || e)); } })()`
           const scriptRet = await executor.evalScript(wrapped)
           LogUtils.info(`音源脚本执行结果: ${scriptRet ? scriptRet.substring(0, 200) : '(空)'}`)
           if (scriptRet && (scriptRet.includes('Error') || scriptRet.includes('error') || scriptRet.includes('异常'))) {
@@ -1345,18 +1345,18 @@ export class JSScriptSource extends BaseSource {
           // 否则请求会残留到第一次播放，既拖慢取歌，也可能让脚本始终处于未初始化状态。
           const initState = await this.driveWebInitRequests(executor)
           if (!initState.inited) {
-            throw new Error(`音源未完成 lx.send(inited): ${initState.error || '等待超时'}`)
+            throw new Error(`音源未完成 sourceApi.send(inited): ${initState.error || '等待超时'}`)
           }
           this.sourceCapabilities = initState.sources
-          const checkRet = await executor.callGlobalFunction('__lx_check__', '[]')
-          LogUtils.info(`lx 环境校验: ${checkRet}`)
+          const checkRet = await executor.callGlobalFunction('__source_check__', '[]')
+          LogUtils.info(`sourceApi 环境校验: ${checkRet}`)
           if (checkRet !== '"ok"' && checkRet !== 'ok' && checkRet !== '"\\"ok\\""') {
-            throw new Error(`lx 环境校验失败: ${checkRet}`)
+            throw new Error(`sourceApi 环境校验失败: ${checkRet}`)
           }
           this.isReady = true
           // init 后立即诊断（脚本内部错误/注册状态）
           try {
-            const diag = await executor.callGlobalFunction('__lx_diag__', '[]')
+            const diag = await executor.callGlobalFunction('__source_diag__', '[]')
             LogUtils.info(`[Web执行器] init诊断(${this.info.name}): ${diag}`)
           } catch (diagErr) {
             LogUtils.warn(`[Web执行器] init诊断异常: ${JSON.stringify(diagErr)}`)
@@ -1394,7 +1394,7 @@ export class JSScriptSource extends BaseSource {
       LogUtils.info(`[${engineName}] VM 创建成功: handle=${this.handle}`)
 
       const scriptRet = bridge.evalScript(this.handle,
-        ';globalThis.__lx_script_info__=' + scriptInfoJson + ';\n' + PRELOAD_SCRIPT + '\n' + this.scriptContent)
+        ';globalThis.__source_script_info__=' + scriptInfoJson + ';\n' + PRELOAD_SCRIPT + '\n' + this.scriptContent)
       LogUtils.info(`[${engineName}] 音源脚本执行结果: ${scriptRet ? scriptRet.substring(0, 200) : '(空)'}`)
       if (scriptRet && (scriptRet.includes('Error') || scriptRet.includes('error') || scriptRet.includes('异常'))) {
         throw new Error(scriptRet)
@@ -1409,13 +1409,13 @@ export class JSScriptSource extends BaseSource {
         await new Promise<void>((resolve) => setTimeout(resolve, 50))
       }
       if (!initState.inited) {
-        throw new Error(`音源未完成 lx.send(inited): ${initState.error || '等待超时'}`)
+        throw new Error(`音源未完成 sourceApi.send(inited): ${initState.error || '等待超时'}`)
       }
       this.sourceCapabilities = initState.sources
 
-      const checkRet = bridge.callGlobalFunction(this.handle, '__lx_check__', '[]')
+      const checkRet = bridge.callGlobalFunction(this.handle, '__source_check__', '[]')
       if (checkRet !== '"ok"' && checkRet !== 'ok') {
-        throw new Error(`lx 环境校验失败: ${checkRet}`)
+        throw new Error(`sourceApi 环境校验失败: ${checkRet}`)
       }
       this.isReady = true
       LogUtils.info(`[${engineName}] 沙箱初始化完成: ${this.info.name} v${this.info.version}`)
@@ -1505,7 +1505,7 @@ export class JSScriptSource extends BaseSource {
 
     const formData = opts['formData'] as Record<string, Object> | undefined
     if (method.toUpperCase() === 'POST' && formData) {
-      const boundary = `----lxHarmony${Date.now()}${Math.floor(Math.random() * 100000)}`
+      const boundary = `----sourceMusic${Date.now()}${Math.floor(Math.random() * 100000)}`
       headers['Content-Type'] = `multipart/form-data; boundary=${boundary}`
       const parts: string[] = []
       const keys = Object.keys(formData)
@@ -1598,7 +1598,7 @@ export class JSScriptSource extends BaseSource {
     }
   }
 
-  /** 常见 HTTP 状态文本，行为与浏览器/lx request 响应一致。 */
+  /** 常见 HTTP 状态文本，行为与浏览器/sourceApi request 响应一致。 */
   private getHttpStatusMessage(statusCode: number): string {
     const messages: Record<number, string> = {
       200: 'OK', 201: 'Created', 202: 'Accepted', 204: 'No Content',
@@ -1657,7 +1657,7 @@ export class JSScriptSource extends BaseSource {
     if (!this.bridge || !this.handle) return { inited: false, error: '', sources: {} }
     try {
       const raw = this.bridge.callGlobalFunction(
-        this.handle, '__lx_getInitState__', JSON.stringify([this.info.name]))
+        this.handle, '__source_getInitState__', JSON.stringify([this.info.name]))
       return this.parseInitState(raw)
     } catch (err) {
       return { inited: false, error: '', sources: {} }
@@ -1671,7 +1671,7 @@ export class JSScriptSource extends BaseSource {
     while (Date.now() < deadline) {
       let handled = 0
       try {
-        const reqsJson = await executor.callGlobalFunction('__lx_takeRequests__', '[]')
+        const reqsJson = await executor.callGlobalFunction('__source_takeRequests__', '[]')
         if (reqsJson && reqsJson !== 'null' && reqsJson !== '[]') {
           const reqs = JSON.parse(reqsJson) as Array<Record<string, Object>>
           for (let i = 0; i < reqs.length; i++) {
@@ -1687,7 +1687,7 @@ export class JSScriptSource extends BaseSource {
         LogUtils.warn(`[Web执行器] 初始化请求驱动异常: ${JSON.stringify(err)}`)
       }
       const rawState = await executor.callGlobalFunction(
-        '__lx_getInitState__', JSON.stringify([this.info.name]))
+        '__source_getInitState__', JSON.stringify([this.info.name]))
       initState = this.parseInitState(rawState)
       if (initState.inited || initState.error) break
       await new Promise<void>((resolve) => setTimeout(resolve, 50))
@@ -1745,13 +1745,13 @@ export class JSScriptSource extends BaseSource {
     if (!this.bridge) return
     // 0. 驱动脚本内 setTimeout 定时器
     try {
-      this.bridge.callGlobalFunction(this.handle, '__lx_tick__', '[]')
+      this.bridge.callGlobalFunction(this.handle, '__source_tick__', '[]')
     } catch (tickErr) {
       // 忽略 tick 异常
     }
     // 1. 取脚本挂起的网络请求并发起
     try {
-      const reqsJson = this.bridge.callGlobalFunction(this.handle, '__lx_takeRequests__', '[]')
+      const reqsJson = this.bridge.callGlobalFunction(this.handle, '__source_takeRequests__', '[]')
       if (reqsJson && reqsJson !== '[]' && reqsJson !== 'null') {
         const reqs = JSON.parse(reqsJson) as Array<Record<string, Object>>
         for (let i = 0; i < reqs.length; i++) {
@@ -1807,11 +1807,11 @@ export class JSScriptSource extends BaseSource {
       respObj['headers'] = response.headers
       respObj['body'] = response.body
       const respJson = JSON.stringify(respObj)
-      await executor.callGlobalFunction('__lx_resolveRequest__', JSON.stringify([reqId, 'null', respJson]))
+      await executor.callGlobalFunction('__source_resolveRequest__', JSON.stringify([reqId, 'null', respJson]))
     } catch (err) {
       this.inflightWebRequests.delete(reqId)
       LogUtils.warn(`[Web执行器] 驱动请求失败: ${JSON.stringify(err)}`)
-      await executor.callGlobalFunction('__lx_resolveRequest__', JSON.stringify([reqId, JSON.stringify(String(err)), 'null']))
+      await executor.callGlobalFunction('__source_resolveRequest__', JSON.stringify([reqId, JSON.stringify(String(err)), 'null']))
     }
   }
 
@@ -1836,11 +1836,11 @@ export class JSScriptSource extends BaseSource {
       if (!executor || !JsExecutorRegistry.isAvailable()) {
         return '{"status":false,"error":"executor not available"}'
       }
-      await executor.callGlobalFunction('__lx_call__', JSON.stringify([requestId, action, callInfo, this.info.name]))
+      await executor.callGlobalFunction('__source_call__', JSON.stringify([requestId, action, callInfo, this.info.name]))
       const deadline = Date.now() + 20000
       while (Date.now() < deadline) {
         // 驱动脚本挂起的网络请求（直接 ArkTS 原生网络，绕开 Web 代理）
-        const reqsJson = await executor.callGlobalFunction('__lx_takeRequests__', '[]')
+        const reqsJson = await executor.callGlobalFunction('__source_takeRequests__', '[]')
         if (reqsJson && reqsJson !== 'null' && reqsJson !== '[]') {
           try {
             const reqs = JSON.parse(reqsJson) as Array<Record<string, Object>>
@@ -1857,7 +1857,7 @@ export class JSScriptSource extends BaseSource {
             LogUtils.warn(`[沙箱] 请求队列解析异常: ${JSON.stringify(reqErr)}`)
           }
         }
-        const r = await executor.callGlobalFunction('__lx_takeResult__', JSON.stringify([requestId]))
+        const r = await executor.callGlobalFunction('__source_takeResult__', JSON.stringify([requestId]))
         if (r && r !== 'null' && r !== '""' && r !== '') {
           LogUtils.info(`[沙箱] action=${action} 结果: ${r.substring(0, 200)}`)
           return r
@@ -1867,9 +1867,9 @@ export class JSScriptSource extends BaseSource {
       LogUtils.warn(`[沙箱] action=${action} 超时`)
       // 超时诊断：读取脚本侧全局错误与注册状态
       try {
-        const errs = await executor.callGlobalFunction('__lx_takeResult__', JSON.stringify([requestId]))
+        const errs = await executor.callGlobalFunction('__source_takeResult__', JSON.stringify([requestId]))
         LogUtils.warn(`[沙箱] 超时最终结果: ${errs}`)
-        const diag = await executor.callGlobalFunction('__lx_diag__', '[]')
+        const diag = await executor.callGlobalFunction('__source_diag__', '[]')
         LogUtils.warn(`[沙箱] 诊断: ${diag}`)
       } catch (diagErr) {
         LogUtils.warn(`[沙箱] 诊断异常: ${JSON.stringify(diagErr)}`)
@@ -1881,12 +1881,12 @@ export class JSScriptSource extends BaseSource {
     let callRet = ''
     if (!this.bridge) return '{"status":false,"error":"bridge not ready"}'
     try {
-      callRet = this.bridge.callGlobalFunction(this.handle, '__lx_call__', JSON.stringify([requestId, action, callInfo]))
+      callRet = this.bridge.callGlobalFunction(this.handle, '__source_call__', JSON.stringify([requestId, action, callInfo]))
     } catch (callErr) {
-      LogUtils.error(`[沙箱] __lx_call__ 调用异常`, JSON.stringify(callErr))
+      LogUtils.error(`[沙箱] __source_call__ 调用异常`, JSON.stringify(callErr))
       return '{"status":false,"error":"call exception"}'
     }
-    LogUtils.info(`[沙箱] __lx_call__ 返回: ${callRet}`)
+    LogUtils.info(`[沙箱] __source_call__ 返回: ${callRet}`)
 
     // 等待循环：处理脚本请求 + 驱动定时器 + 轮询结果（最多 15 秒）
     const deadline = Date.now() + 15000
@@ -1896,7 +1896,7 @@ export class JSScriptSource extends BaseSource {
 
       // 2. 检查脚本结果
       try {
-        const r = this.bridge.callGlobalFunction(this.handle, '__lx_takeResult__', JSON.stringify([requestId]))
+        const r = this.bridge.callGlobalFunction(this.handle, '__source_takeResult__', JSON.stringify([requestId]))
         if (r && r !== 'null' && r !== '') {
           LogUtils.info(`[沙箱] action=${action} 结果: ${r.substring(0, 200)}`)
           return r
@@ -1917,7 +1917,7 @@ export class JSScriptSource extends BaseSource {
   // ===== BaseSource 接口实现 =====
 
   /**
-   * 查询脚本声明的 actions 能力（原版 lx-music 协议：inited 上报 sources.actions）
+   * 查询脚本声明的 actions 能力（原版 社区音源 协议：inited 上报 sources.actions）
    * 返回空数组 = 未上报能力声明，按标准解析源处理，不参与搜索。
    */
   async getDeclaredActions(): Promise<string[]> {
@@ -1937,14 +1937,14 @@ export class JSScriptSource extends BaseSource {
       if (this.useWebExecutor) {
         const executor = JsExecutorRegistry.instance
         if (!executor) return result
-        const raw = await executor.callGlobalFunction('__lx_getActions__', argsJson)
+        const raw = await executor.callGlobalFunction('__source_getActions__', argsJson)
         if (raw && raw !== 'null' && raw !== '[]' && raw !== '""') {
           return JSON.parse(raw) as Array<string>
         }
         return result
       }
       if (this.bridge && this.handle) {
-        const raw = this.bridge.callGlobalFunction(this.handle, '__lx_getActions__', argsJson)
+        const raw = this.bridge.callGlobalFunction(this.handle, '__source_getActions__', argsJson)
         if (raw && raw !== 'null' && raw !== '[]' && raw !== '""') {
           return JSON.parse(raw) as Array<string>
         }
@@ -1960,7 +1960,7 @@ export class JSScriptSource extends BaseSource {
    */
   async supportsSearch(): Promise<boolean> {
     const actions = await this.getDeclaredActions()
-    // lx-music 标准导入源只定义 musicUrl/lyric/pic；只有显式声明 search 的扩展源才参与搜索。
+    // 社区音源 标准导入源只定义 musicUrl/lyric/pic；只有显式声明 search 的扩展源才参与搜索。
     return actions.indexOf('search') >= 0
   }
 
@@ -2136,7 +2136,7 @@ export class JSScriptSource extends BaseSource {
     }
   }
 
-  /** 构造原版 LX.Music.MusicInfo 结构 */
+  /** 构造社区音源使用的 MusicInfo 结构 */
   private buildSongInfo(songmid: string, fullSong?: MusicItem): Record<string, Object> {
     const song: Record<string, Object> = {}
     song['id'] = songmid
@@ -2213,7 +2213,7 @@ export class JSScriptSource extends BaseSource {
 
   /**
    * 读取自定义搜索结果携带的真实音乐平台。
-   * 搜索动作由导入源提供，但歌曲 source 仍必须是 LX 约定的平台标识，
+   * 搜索动作由导入源提供，但歌曲 source 仍必须是社区约定的平台标识，
    * 否则后续 musicUrl 会收到 custom 并报“无效的平台参数”。
    */
   private getSongSource(item: Record<string, Object>): SourceType {

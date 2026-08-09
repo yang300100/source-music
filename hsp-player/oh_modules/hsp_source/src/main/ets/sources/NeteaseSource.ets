@@ -88,7 +88,7 @@ export class NeteaseSource extends BaseSource {
     }
   }
 
-  /** 获取播放 URL（enhance/player/url：免费歌返回地址，VIP 返回空抛错换源，与 lx-music 一致） */
+  /** 获取播放 URL（enhance/player/url：免费歌返回地址，VIP 返回空抛错换源，与 社区音源 一致） */
   async getMusicInfo(songmid: string, quality: MusicQuality, fullSong?: MusicItem): Promise<MusicItem> {
     try {
       // 网易 API 需纯数字 id（songmid 可能带 wy_ 平台前缀）

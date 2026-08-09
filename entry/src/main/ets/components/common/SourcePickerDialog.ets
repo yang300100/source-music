@@ -2,7 +2,7 @@ import { SourceInstance } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
 
 /**
- * 选择音源弹窗（歌曲手动换源，lx-music 风格）
+ * 选择音源弹窗（歌曲手动换源，社区音源 风格）
  *
  * 列出全部启用音源单选，底部"确定换源"回调 onPick(sourceId)。
  */

@@ -1,5 +1,5 @@
 /**
- * 音源标识（与 lx-music 社区约定一致）
+ * 音源标识（与 社区音源 社区约定一致）
  * kg=酷狗, kw=酷我, tx=QQ, wy=网易, mg=咪咕, local=本地
  */
 export enum SourceType {

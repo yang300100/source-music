@@ -2,14 +2,14 @@ import { http } from '@kit.NetworkKit'
 import { LogUtils } from './LogUtils'
 
 /**
- * 可取消的 HTTP 请求句柄（对齐参考 lx-music { promise, cancelFn } 模式）
+ * 可取消的 HTTP 请求句柄（对齐参考 社区音源 { promise, cancelFn } 模式）
  */
 export interface AbortableRequest {
   promise: Promise<string>
   abort: () => void
 }
 
-/** 完整 HTTP 响应，供 lx-music 音源协议桥接使用。 */
+/** 完整 HTTP 响应，供 社区音源 音源协议桥接使用。 */
 export interface RawHttpResponse {
   statusCode: number
   statusMessage: string
@@ -123,7 +123,7 @@ export class NetUtils {
 
   /**
    * 返回真实状态码、响应头和响应体，不把非 2xx 响应伪装成空的 200。
-   * 网络层异常会抛出，由 lx.request 桥转换为 callback(err, null, null)。
+   * 网络层异常会抛出，由音源请求桥转换为 callback(err, null, null)。
    */
   static async requestResponse(
     url: string,
@@ -164,7 +164,7 @@ export class NetUtils {
   }
 
   /**
-   * 可取消的通用请求（对齐参考 lx-music { promise, cancelFn } 模式）
+   * 可取消的通用请求（对齐参考 社区音源 { promise, cancelFn } 模式）
    * 调用方在快速切歌/放弃等待时可调用 abort() 中止进行中的网络请求
    */
   static requestRawWithAbort(
@@ -213,7 +213,7 @@ export class NetUtils {
     return { promise: promise, abort: abort }
   }
 
-  /** 可取消的完整响应请求，语义与 lx-music 的 request/cancelFn 一致。 */
+  /** 可取消的完整响应请求，语义与 社区音源 的 request/cancelFn 一致。 */
   static requestResponseWithAbort(
     url: string,
     method: string = 'GET',

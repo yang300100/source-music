@@ -13,7 +13,7 @@ import {
 import { BaseSource } from '../api/SourceAPI'
 
 /**
- * 咪咕音乐源（内置搜索音源，与原版 lx-music 内置音源思路一致）
+ * 咪咕音乐源（内置搜索音源，与原版 社区音源 内置音源思路一致）
  *
  * - 搜索: https://m.music.migu.cn/migu/remoting/scr_search_tag
  * - 播放: https://app.pd.nf.migu.cn/MIGUM2.0/v1.0/content/sub/listenSong.do

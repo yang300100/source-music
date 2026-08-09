@@ -102,7 +102,7 @@ export struct MusicItemView {
     })
   }
 
-  /** 打开"选择搜索源"弹窗（手动换源：列出全部导入音源，lx-music 风格） */
+  /** 打开"选择搜索源"弹窗（手动换源：列出全部导入音源，社区音源 风格） */
   private openSourcePicker(event: ClickEvent): void {
     const pos = DialogPosUtils.fromClickForDialog(event, 320, 440)
     const mgr = SourceManager.getInstance()
@@ -133,7 +133,7 @@ export struct MusicItemView {
     })
   }
 
-  /** 在目标音源搜索同歌并播放（lx-music 风格：单源搜索+解析，失败自动兜底） */
+  /** 在目标音源搜索同歌并播放（社区音源 风格：单源搜索+解析，失败自动兜底） */
   private async switchSource(sourceId: string): Promise<void> {
     if (sourceId === this.song.source) {
       this.showToast('已是当前音源')

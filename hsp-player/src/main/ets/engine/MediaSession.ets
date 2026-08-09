@@ -23,7 +23,7 @@ export class MediaSession {
   async createSession(context: Context): Promise<void> {
     this.context = context
     try {
-      this.session = await avSession.createAVSession(context, 'lx_music', 'audio')
+      this.session = await avSession.createAVSession(context, 'source_music', 'audio')
       this.setupCommandCallbacks()
       LogUtils.info('媒体会话创建成功')
     } catch (err) {
