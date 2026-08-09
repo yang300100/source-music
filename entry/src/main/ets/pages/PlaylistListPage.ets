@@ -9,6 +9,7 @@ import { AppActionDialog, AppDialogAction } from '../components/common/AppAction
 import { DialogPosition, DialogPosUtils } from '../utils/DialogPosUtils'
 import { picker, fileIo } from '@kit.CoreFileKit'
 import { util } from '@kit.ArkTS'
+import { MotionTokens } from '../theme/MotionTokens'
 
 @Component
 export struct PlaylistListContent {
@@ -166,7 +167,12 @@ export struct PlaylistListContent {
                   MusicItemView({ song: song, queueSongs: this.playlist!.songs })
                 }
                 .swipeAction({ end: { builder: () => { this.DeleteSongBuilder(index) } } })
-              })
+                .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
+                  delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
+                  .combine(TransitionEffect.translate({ x: 0, y: 10 })
+                    .animation({ duration: MotionTokens.LIST, delay: MotionTokens.staggerDelay(index),
+                      curve: Curve.FastOutSlowIn })))
+              }, (song: MusicItem) => `${song.source}_${song.songmid}`)
             }
             .width('100%').layoutWeight(1)
             .padding({ left: 12, right: 12 })
@@ -219,7 +225,12 @@ export struct PlaylistListContent {
                   MusicItemView({ song: song, queueSongs: this.playlist!.songs })
                 }
                 .swipeAction({ end: { builder: () => { this.DeleteSongBuilder(index) } } })
-              })
+                .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
+                  delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
+                  .combine(TransitionEffect.translate({ x: 0, y: 10 })
+                    .animation({ duration: MotionTokens.LIST, delay: MotionTokens.staggerDelay(index),
+                      curve: Curve.FastOutSlowIn })))
+              }, (song: MusicItem) => `${song.source}_${song.songmid}`)
             }
             .width('100%').layoutWeight(1)
             .padding({ left: 12, right: 12 })

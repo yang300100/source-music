@@ -2,6 +2,7 @@ import { LocalPlaylist } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
 import { PlaylistActionMenu } from './PlaylistActionMenu'
 import { DialogPosUtils } from '../../utils/DialogPosUtils'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 歌单侧栏组件（歌单列表）
@@ -56,7 +57,7 @@ export struct PlaylistSidebar {
       .padding({ left: 12, right: 12, top: 16, bottom: 8 })
 
       List({ space: 2 }) {
-        ForEach(this.playlists, (pl: LocalPlaylist) => {
+        ForEach(this.playlists, (pl: LocalPlaylist, index: number) => {
           ListItem() {
             Row() {
               Column({ space: 2 }) {
@@ -73,13 +74,20 @@ export struct PlaylistSidebar {
             .padding({ left: 12, right: 12, top: 10, bottom: 10 })
             .borderRadius(8)
             .backgroundColor(this.selectedId === pl.id ? this.activeBg : Color.Transparent)
+            .scale({ x: this.selectedId === pl.id ? 1.02 : 1, y: this.selectedId === pl.id ? 1.02 : 1 })
+            .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
             .onClick(() => { this.onSelect(pl.id) })
             .gesture(
               LongPressGesture()
                 .onAction((event: GestureEvent) => { this.openActionMenu(pl.id, event) })
             )
           }
-        })
+          .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
+            delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
+            .combine(TransitionEffect.translate({ x: -10, y: 0 })
+              .animation({ duration: MotionTokens.LIST, delay: MotionTokens.staggerDelay(index),
+                curve: Curve.FastOutSlowIn })))
+        }, (pl: LocalPlaylist) => pl.id)
       }
       .width('100%').layoutWeight(1)
     }

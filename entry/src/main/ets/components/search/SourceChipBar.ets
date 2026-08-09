@@ -1,4 +1,5 @@
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /** 搜索源选项 */
 export interface SearchSourceOption {
@@ -50,6 +51,12 @@ export struct SourceChipBar {
       .backdropBlur(this.activeSourceId === sourceId ? 0 : 20)
       .padding({ left: 14, right: 14, top: 5, bottom: 5 })
       .borderRadius(14)
+      .scale({ x: this.activeSourceId === sourceId ? 1.04 : 1,
+        y: this.activeSourceId === sourceId ? 1.04 : 1 })
+      .shadow(this.activeSourceId === sourceId ?
+        { radius: 10, color: '#35b388ff', offsetX: 0, offsetY: 2 } :
+        { radius: 0, color: '#00000000', offsetX: 0, offsetY: 0 })
+      .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
       .onClick(() => {
         this.onSourceChange(sourceId)
       })

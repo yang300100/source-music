@@ -1,5 +1,6 @@
 import { SourceInstance } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 选择音源弹窗（歌曲手动换源，社区音源 风格）
@@ -21,6 +22,7 @@ export struct SourcePickerDialog {
   private controller: CustomDialogController
   /** 选中的音源 ID */
   @State selectedSearchId: string = ''
+  @State entered: boolean = false
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -29,6 +31,7 @@ export struct SourcePickerDialog {
   private get borderFaint(): ResourceColor { return ThemeColors.dialogBorderFaint(this.isDark) }
 
   aboutToAppear(): void {
+    setTimeout(() => { this.entered = true }, 20)
     // 默认选中当前源（如果在搜索源组），否则选第一个
     let found = false
     for (const s of this.searchSources) {
@@ -99,6 +102,10 @@ export struct SourcePickerDialog {
     .borderRadius(20)
     .border({ width: 0.5, color: this.borderFaint })
     .shadow({ radius: 24, color: '#60b388ff', offsetX: 0, offsetY: 4 })
+    .opacity(this.entered ? 1 : 0)
+    .scale({ x: this.entered ? 1 : 0.92, y: this.entered ? 1 : 0.92 })
+    .translate({ x: 0, y: this.entered ? 0 : 12 })
+    .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })
   }
 
   @Builder
@@ -126,6 +133,9 @@ export struct SourcePickerDialog {
     .padding({ left: 16, right: 16, top: 10, bottom: 10 })
     .borderRadius(10)
     .backgroundColor(this.selectedSearchId === source.info.id ? '#20b388ff' : Color.Transparent)
+    .scale({ x: this.selectedSearchId === source.info.id ? 1.02 : 1,
+      y: this.selectedSearchId === source.info.id ? 1.02 : 1 })
+    .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
     .onClick(() => {
       this.selectedSearchId = source.info.id
     })

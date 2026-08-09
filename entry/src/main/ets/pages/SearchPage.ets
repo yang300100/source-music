@@ -11,6 +11,7 @@ import { PlaylistNameDialog } from '../components/PlaylistNameDialog'
 import { PlaylistPickerDialog } from '../components/common/PlaylistPickerDialog'
 import { ThemeColors } from '../theme/ThemeColors'
 import { DialogPosUtils } from '../utils/DialogPosUtils'
+import { MotionTokens } from '../theme/MotionTokens'
 
 @Component
 export struct SearchContent {
@@ -132,21 +133,40 @@ export struct SearchContent {
         .width('100%').layoutWeight(1)
         .scrollBar(BarState.Off)
         .align(Alignment.Top)
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+          .combine(TransitionEffect.translate({ x: 0, y: 12 })
+            .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
       } else if (this.isLoading) {
-        LoadingProgress().color('#b388ff').width(40).height(40)
+        Column({ space: 12 }) {
+          LoadingProgress().color('#b388ff').width(40).height(40)
+          Text('正在搜索...').fontSize(12).fontColor(this.secondaryText)
+        }
+        .width('100%').height('100%').justifyContent(FlexAlign.Center)
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.NORMAL, curve: Curve.EaseOut })
+          .combine(TransitionEffect.scale({ x: 0.92, y: 0.92 })
+            .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })))
       } else if (this.results.length === 0) {
         Column() {
           Text('未找到相关歌曲').fontSize(15).fontColor(this.secondaryText)
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Center)
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.NORMAL, curve: Curve.EaseOut })
+          .combine(TransitionEffect.translate({ x: 0, y: 10 })
+            .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })))
       } else {
         SearchResultList({
           results: this.results,
           onAddToPlaylist: (song: MusicItem, event: ClickEvent) => { this.addToPlaylist(song, event) }
         })
+        .layoutWeight(1)
+        .width('100%')
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+          .combine(TransitionEffect.translate({ x: 0, y: 14 })
+            .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
       }
     }
     .width('100%').height('100%')
+    .clip(true)
   }
 
   private doSearch(): void {

@@ -1,5 +1,6 @@
 import { MusicItem, LocalPlaylist } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 歌单选择弹窗（自定义毛玻璃底部卡片）
@@ -16,6 +17,11 @@ export struct PlaylistPickerDialog {
   playlists: LocalPlaylist[] = []
   /** 选择歌单回调（playlistId 或 'new'） */
   onPick: (playlistId: string, event: ClickEvent) => void = (playlistId: string, event: ClickEvent) => {}
+  @State entered: boolean = false
+
+  aboutToAppear(): void {
+    setTimeout(() => { this.entered = true }, 20)
+  }
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -68,6 +74,10 @@ export struct PlaylistPickerDialog {
     .borderRadius({ topLeft: 28, topRight: 28, bottomLeft: 20, bottomRight: 20 })
     .border({ width: 0.5, color: this.borderFaint })
     .shadow({ radius: 30, color: '#60b388ff', offsetX: 0, offsetY: 4 })
+    .opacity(this.entered ? 1 : 0)
+    .scale({ x: this.entered ? 1 : 0.92, y: this.entered ? 1 : 0.92 })
+    .translate({ x: 0, y: this.entered ? 0 : 12 })
+    .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })
   }
 
   @Builder
@@ -83,6 +93,10 @@ export struct PlaylistPickerDialog {
     .padding({ left: 16, right: 16, top: 13, bottom: 13 })
     .backgroundColor(this.rowBg)
     .borderRadius(14)
+    .stateStyles({
+      normal: { .opacity(1).scale({ x: 1, y: 1 }) },
+      pressed: { .opacity(0.72).scale({ x: MotionTokens.PRESSED_SCALE, y: MotionTokens.PRESSED_SCALE }) }
+    })
     .onClick((event: ClickEvent) => {
       this.onPick(playlistId, event)
       this.controller?.close()

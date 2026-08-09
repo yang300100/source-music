@@ -14,8 +14,10 @@ import { FontSizeDialog } from '../components/common/FontSizeDialog'
 import { QualityDialog } from '../components/common/QualityDialog'
 import { ImageCropper } from '../components/common/ImageCropper'
 import { AppActionDialog, AppDialogAction } from '../components/common/AppActionDialog'
+import { EqDialog } from '../components/common/EqDialog'
 import { DialogPosition, DialogPosUtils } from '../utils/DialogPosUtils'
 import { ThemeColors } from '../theme/ThemeColors'
+import { MotionTokens } from '../theme/MotionTokens'
 
 const BACKUP_TYPE = 'sourceMusicBackup'
 // 兼容旧版备份类型与扩展名，字符串拆分可避免旧品牌继续出现在正式代码中。
@@ -37,6 +39,9 @@ export struct SettingsContent {
   @State autoCleanPlayedEnabled: boolean = false
   @State autoThemeEnabled: boolean = false
   @State defaultQualityText: string = '320k'
+  @State eqEnabled: boolean = false
+  @State eqSupported: boolean = false
+  @State eqPresetText: string = '默认'
   @State cacheSizeText: string = '计算中...'
   @State customBgEnabled: boolean = false
   @State cropUri: string = ''
@@ -80,6 +85,7 @@ export struct SettingsContent {
     alignment: DialogAlignment.Center,
     customStyle: true
   })
+  private eqDialogController: CustomDialogController | null = null
   /** 应用统一操作弹窗，成员引用可避免弹窗控制器被提前回收 */
   private actionDialogController: CustomDialogController | null = null
   /** 最近一次弹窗锚点，异步错误提示也沿用触发操作的位置 */
@@ -117,6 +123,9 @@ export struct SettingsContent {
       this.defaultQualityText = val
       this.applyQualityToPlayer(val)
     })
+    this.eqEnabled = this.player.eqEnabled
+    this.eqSupported = this.player.eqSupported
+    this.eqPresetText = this.getEqPresetLabel(this.player.eqPreset)
     this.refreshCacheSize()
     this.sources = [...this.sourceManager.getManageSources()]
   }
@@ -193,6 +202,9 @@ export struct SettingsContent {
                 showImportDialog: (event: ClickEvent) => { this.showImportSourceDialog(event) }
               })
             }
+            .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+              .combine(TransitionEffect.translate({ x: 0, y: -12 })
+                .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
           }
 
           ListItem() {
@@ -263,6 +275,16 @@ export struct SettingsContent {
               title: '默认音质',
               value: this.defaultQualityText,
               onRowClick: (event: ClickEvent) => { this.showQualityDialog(event) }
+            })
+          }
+
+          ListItem() {
+            SettingsRow({
+              title: '十段均衡器',
+              subtitle: this.eqSupported ? '31Hz—16kHz，支持预设与自定义调节' : '当前设备系统版本不支持',
+              value: this.eqSupported ? (this.eqEnabled ? this.eqPresetText : '关闭') : '不支持',
+              showArrow: this.eqSupported,
+              onRowClick: (event: ClickEvent) => { this.showEqDialog(event) }
             })
           }
 
@@ -524,6 +546,66 @@ export struct SettingsContent {
       customStyle: true
     })
     this.qualityDialogController.open()
+  }
+
+  private getEqPresetLabel(preset: string): string {
+    if (preset === 'ballad') return '民谣'
+    if (preset === 'chinese') return '中国风'
+    if (preset === 'classical') return '古典'
+    if (preset === 'dance') return '舞曲'
+    if (preset === 'jazz') return '爵士'
+    if (preset === 'pop') return '流行'
+    if (preset === 'rb') return 'R&B'
+    if (preset === 'rock') return '摇滚'
+    if (preset === 'custom') return '自定义'
+    return '默认'
+  }
+
+  private showEqDialog(event: ClickEvent): void {
+    if (!this.eqSupported) {
+      this.showToast('当前设备系统版本不支持十段均衡器')
+      return
+    }
+    const pos = DialogPosUtils.fromClickForDialog(event, 540, 430)
+    this.eqDialogController = new CustomDialogController({
+      builder: EqDialog({
+        eqEnabled: this.player.eqEnabled,
+        supported: this.player.eqSupported,
+        preset: this.player.eqPreset,
+        gains: [...this.player.eqGains],
+        onEnabledChange: (enabled: boolean) => {
+          this.player.setEqEnabled(enabled).then((success: boolean) => {
+            if (success) {
+              this.eqEnabled = enabled
+              this.showToast(enabled ? '均衡器已开启' : '均衡器已关闭')
+            } else {
+              this.showToast('均衡器开关失败')
+            }
+          })
+        },
+        onPresetChange: (preset: string) => {
+          this.player.setEqPreset(preset).then((success: boolean) => {
+            if (success) {
+              this.eqPresetText = this.getEqPresetLabel(preset)
+            } else {
+              this.showToast('预设应用失败')
+            }
+          })
+        },
+        onGainsChange: (gains: number[]) => {
+          this.player.setEqGains(gains).then((success: boolean) => {
+            if (success) {
+              this.eqPresetText = '自定义'
+            }
+          })
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    this.eqDialogController.open()
   }
 
   private applyQuality(quality: string): void {

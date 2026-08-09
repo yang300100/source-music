@@ -1,4 +1,5 @@
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 搜索输入栏组件
@@ -14,6 +15,8 @@ export struct SearchBar {
   onKeywordChange: (value: string) => void = (value: string) => {}
   /** 提交搜索回调 */
   onSearch: () => void = () => {}
+  @State inputFocused: boolean = false
+  @State searchPressed: boolean = false
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -30,7 +33,15 @@ export struct SearchBar {
         .backgroundColor(this.inputBg)
         .backdropBlur(20)
         .borderRadius(12)
+        .border({ width: this.inputFocused ? 1.5 : 0.5,
+          color: this.inputFocused ? this.accentColor : ThemeColors.borderFaint(this.isDark) })
+        .scale({ x: this.inputFocused ? 1.01 : 1, y: this.inputFocused ? 1.01 : 1 })
+        .shadow(this.inputFocused ? { radius: 12, color: '#30b388ff', offsetX: 0, offsetY: 2 } :
+          { radius: 0, color: '#00000000', offsetX: 0, offsetY: 0 })
+        .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
         .caretColor('#b388ff')
+        .onFocus(() => { this.inputFocused = true })
+        .onBlur(() => { this.inputFocused = false })
         .onChange((value: string) => { this.onKeywordChange(value) })
         .onSubmit(() => { this.onSearch() })
 
@@ -40,6 +51,13 @@ export struct SearchBar {
         .backgroundColor(this.accentColor)
         .padding({ left: 16, right: 16, top: 8, bottom: 8 })
         .borderRadius(12)
+        .scale({ x: this.searchPressed ? MotionTokens.PRESSED_SCALE : 1,
+          y: this.searchPressed ? MotionTokens.PRESSED_SCALE : 1 })
+        .opacity(this.searchPressed ? 0.82 : 1)
+        .animation({ duration: MotionTokens.FAST, curve: Curve.EaseOut })
+        .onTouch((event: TouchEvent) => {
+          this.searchPressed = event.type === TouchType.Down
+        })
         .onClick(() => { this.onSearch() })
     }
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })

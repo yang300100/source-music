@@ -1,5 +1,6 @@
 import { MusicItem } from 'common'
 import { MusicItemView } from '../MusicItemView'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 搜索结果列表组件
@@ -16,16 +17,26 @@ export struct SearchResultList {
 
   build() {
     List() {
-      ForEach(this.results, (song: MusicItem) => {
+      ForEach(this.results, (song: MusicItem, index: number) => {
         ListItem() {
           MusicItemView({ song: song, queueSongs: this.results, showAddButton: true })
         }
         .swipeAction({
           end: { builder: () => { this.AddToPlaylistBuilder(song) } }
         })
-      })
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
+          delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
+          .combine(TransitionEffect.translate({ x: 0, y: 12 })
+            .animation({ duration: MotionTokens.LIST, delay: MotionTokens.staggerDelay(index),
+              curve: Curve.FastOutSlowIn })))
+      }, (song: MusicItem) => `${song.source}_${song.songmid}`)
     }
-    .width('100%').layoutWeight(1).scrollBar(BarState.Off)
+    .width('100%')
+    .height('100%')
+    .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring)
+    .padding({ bottom: 12 })
+    .clip(true)
   }
 
   @Builder
@@ -36,6 +47,9 @@ export struct SearchResultList {
       .backgroundColor('#b388ff')
       .padding({ left: 16, right: 16, top: 8, bottom: 8 })
       .borderRadius(8)
+      .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.NORMAL, curve: Curve.EaseOut })
+        .combine(TransitionEffect.translate({ x: 12, y: 0 })
+          .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })))
       .onClick((event: ClickEvent) => { this.onAddToPlaylist(song, event) })
   }
 }

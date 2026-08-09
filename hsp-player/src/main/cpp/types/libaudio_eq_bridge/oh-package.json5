@@ -1,0 +1,6 @@
+{
+  "name": "libaudio_eq_bridge.so",
+  "types": "./index.d.ts",
+  "version": "1.0.0",
+  "description": "OHAudioSuite 十段均衡器原生桥接"
+}

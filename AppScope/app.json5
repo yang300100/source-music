@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "com.yuki.source_music",
+    "bundleName": "com.player.source_music",
     "vendor": "yuki",
     "versionCode": 1000003,
     "versionName": "0.2.2",

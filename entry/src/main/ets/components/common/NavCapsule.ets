@@ -1,5 +1,6 @@
 import { display } from '@kit.ArkUI'
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /** 导航胶囊选项 */
 export interface NavTab {
@@ -88,6 +89,13 @@ export struct NavCapsule {
               offsetX: 0,
               offsetY: 4
             } : { radius: 0, color: Color.Transparent, offsetX: 0, offsetY: 0 })
+            .scale({ x: this.activePage === tab.pageName ? 1.06 : 1,
+              y: this.activePage === tab.pageName ? 1.06 : 1 })
+            .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
+            .stateStyles({
+              normal: { .opacity(1) },
+              pressed: { .opacity(0.62) }
+            })
             .onClick(() => {
               this.onSelect(tab.pageName)
             })
@@ -99,6 +107,9 @@ export struct NavCapsule {
         .backdropBlur(50)
         .border({ width: 0.5, color: '#d8a8ff' })
         .shadow({ radius: 20, color: '#30b388ff', offsetX: 0, offsetY: 4 })
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+          .combine(TransitionEffect.scale({ x: 0.88, y: 0.88 })
+            .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
       }
     }
     .position({ x: this.capsuleOffsetX, y: this.capsuleOffsetY })

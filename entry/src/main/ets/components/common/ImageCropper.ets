@@ -2,6 +2,7 @@ import { image } from '@kit.ImageKit'
 import { fileIo } from '@kit.CoreFileKit'
 import { LogUtils } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 图片裁剪弹窗（全屏）
@@ -43,6 +44,7 @@ export struct ImageCropper {
   /** 裁剪框大小（vp，居中显示） */
   private frameW: number = 260
   private frameH: number = 260
+  @State entered: boolean = false
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -51,6 +53,7 @@ export struct ImageCropper {
   aboutToAppear(): void {
     this.frameH = this.frameW / this.frameRatio
     this.loadSource()
+    setTimeout(() => { this.entered = true }, 20)
   }
 
   /** 加载源图片 */
@@ -256,5 +259,8 @@ export struct ImageCropper {
     }
     .width('100%').height('100%')
     .backgroundColor(this.isDark ? '#14121a' : '#f2f0f6')
+    .opacity(this.entered ? 1 : 0)
+    .scale({ x: this.entered ? 1 : 0.98, y: this.entered ? 1 : 0.98 })
+    .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })
   }
 }

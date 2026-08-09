@@ -1,5 +1,6 @@
 import { MusicItem, PlayerStatus } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 播放列表面板组件（NowPlaying 播放列表栏）
@@ -42,6 +43,8 @@ export struct QueuePanel {
           .backgroundColor(this.sortMode ? this.accentColor : Color.Transparent)
           .padding({ left: 10, right: 10, top: 4, bottom: 4 })
           .borderRadius(10)
+          .scale({ x: this.sortMode ? 1.04 : 1, y: this.sortMode ? 1.04 : 1 })
+          .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
           .onClick(() => { this.sortMode = !this.sortMode })
         Image($r('app.media.ic_clear')).width(14).height(14).fillColor(this.accentColor)
           .margin({ left: 10 })
@@ -55,6 +58,9 @@ export struct QueuePanel {
           Text('队列为空').fontSize(14).fontColor(this.secondaryText)
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Center)
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.NORMAL, curve: Curve.EaseOut })
+          .combine(TransitionEffect.scale({ x: 0.94, y: 0.94 })
+            .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })))
       } else {
         List({ space: 2 }) {
           ForEach(this.queueSongs, (song: MusicItem, index: number) => {
@@ -105,11 +111,18 @@ export struct QueuePanel {
               .padding({ left: 12, right: 12, top: 8, bottom: 8 })
               .borderRadius(10)
               .backgroundColor(index === this.queueIndex ? (this.isDark ? '#15b388ff' : '#10b388ff') : Color.Transparent)
+              .scale({ x: index === this.queueIndex ? 1.01 : 1, y: index === this.queueIndex ? 1.01 : 1 })
+              .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
               .onClick(() => {
                 if (!this.sortMode) { this.onPlayAt(index) }
               })
             }
-          })
+            .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
+              delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
+              .combine(TransitionEffect.translate({ x: 10, y: 0 })
+                .animation({ duration: MotionTokens.LIST, delay: MotionTokens.staggerDelay(index),
+                  curve: Curve.FastOutSlowIn })))
+          }, (song: MusicItem) => `${song.source}_${song.songmid}`)
         }
         .width('100%').layoutWeight(1)
         .scrollBar(BarState.Off)

@@ -1,4 +1,5 @@
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 通用设置行组件
@@ -24,6 +25,7 @@ export struct SettingsRow {
   onRowClick: (event: ClickEvent) => void = (event: ClickEvent) => {}
   /** Toggle 切换回调 */
   onToggle: (checked: boolean) => void = (checked: boolean) => {}
+  @State rowPressed: boolean = false
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -48,6 +50,8 @@ export struct SettingsRow {
       if (this.showToggle) {
         Toggle({ type: ToggleType.Switch, isOn: this.isOn })
           .selectedColor('#b388ff')
+          .scale({ x: this.isOn ? 1.04 : 1, y: this.isOn ? 1.04 : 1 })
+          .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
           .onChange((checked: boolean) => { this.onToggle(checked) })
           .margin({ right: 4 })
       }
@@ -58,6 +62,11 @@ export struct SettingsRow {
     .width('100%').padding({ left: 16, right: 16, top: 14, bottom: 14 })
     .backgroundColor(this.cardBg).backdropBlur(20).borderRadius(12)
     .border({ width: 0.5, color: this.borderFaint })
+    .scale({ x: this.rowPressed ? MotionTokens.PRESSED_SCALE : 1,
+      y: this.rowPressed ? MotionTokens.PRESSED_SCALE : 1 })
+    .opacity(this.rowPressed ? 0.88 : 1)
+    .animation({ duration: MotionTokens.FAST, curve: Curve.EaseOut })
+    .onTouch((event: TouchEvent) => { this.rowPressed = event.type === TouchType.Down })
     .onClick((event: ClickEvent) => { this.onRowClick(event) })
   }
 }

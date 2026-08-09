@@ -1,5 +1,6 @@
 import { DownloadedSong, DownloadUtils, SourceType, MusicItem } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 已下载歌曲面板
@@ -62,9 +63,12 @@ export struct DownloadPanel {
           Text('暂无下载').fontSize(14).fontColor(this.secondaryText)
         }
         .width('100%').height('100%').justifyContent(FlexAlign.Center)
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.NORMAL, curve: Curve.EaseOut })
+          .combine(TransitionEffect.scale({ x: 0.94, y: 0.94 })
+            .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })))
       } else {
         List({ space: 2 }) {
-          ForEach(this.downloads, (item: DownloadedSong) => {
+          ForEach(this.downloads, (item: DownloadedSong, index: number) => {
             ListItem() {
               Row({ space: 10 }) {
                 if (item.imgUrl) {
@@ -92,9 +96,18 @@ export struct DownloadPanel {
               .width('100%')
               .padding({ left: 12, right: 12, top: 8, bottom: 8 })
               .borderRadius(10)
+              .stateStyles({
+                normal: { .opacity(1).scale({ x: 1, y: 1 }) },
+                pressed: { .opacity(0.78).scale({ x: MotionTokens.PRESSED_SCALE, y: MotionTokens.PRESSED_SCALE }) }
+              })
               .onClick(() => { this.onPlay(this.toMusicItem(item)) })
             }
-          })
+            .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
+              delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
+              .combine(TransitionEffect.translate({ x: 0, y: 10 })
+                .animation({ duration: MotionTokens.LIST, delay: MotionTokens.staggerDelay(index),
+                  curve: Curve.FastOutSlowIn })))
+          }, (item: DownloadedSong) => item.songmid)
         }
         .width('100%').layoutWeight(1)
         .scrollBar(BarState.Off)

@@ -1,4 +1,4 @@
-{
+﻿{
   "shortcuts": [
     {
       "shortcutId": "id_search",
@@ -6,7 +6,7 @@
       "icon": "$media:ic_shortcut_search",
       "wants": [
         {
-          "bundleName": "com.yuki.source_music",
+          "bundleName": "com.player.source_music",
           "moduleName": "entry",
           "abilityName": "EntryAbility",
           "parameters": {
@@ -21,7 +21,7 @@
       "icon": "$media:ic_shortcut_favorite",
       "wants": [
         {
-          "bundleName": "com.yuki.source_music",
+          "bundleName": "com.player.source_music",
           "moduleName": "entry",
           "abilityName": "EntryAbility",
           "parameters": {
@@ -36,7 +36,7 @@
       "icon": "$media:ic_shortcut_playlist",
       "wants": [
         {
-          "bundleName": "com.yuki.source_music",
+          "bundleName": "com.player.source_music",
           "moduleName": "entry",
           "abilityName": "EntryAbility",
           "parameters": {

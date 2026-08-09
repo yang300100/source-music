@@ -1,5 +1,6 @@
 import { PlayerStatus, PlayMode } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 播放控制区组件（NowPlaying 播放栏）
@@ -118,16 +119,29 @@ export struct PlayerControls {
         Image(this.isFavorited ? $r('app.media.ic_favorite_active') : $r('app.media.ic_favorite'))
           .width(20).height(20)
           .fillColor(this.isFavorited ? this.accentColor : this.secondaryText)
+          .scale({ x: this.isFavorited ? 1.16 : 1, y: this.isFavorited ? 1.16 : 1 })
+          .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
+          .stateStyles({
+            normal: { .opacity(1) },
+            pressed: { .opacity(0.55) }
+          })
           .onClick(() => { this.onToggleFavorite() })
 
         Image($r('app.media.ic_download'))
           .width(20).height(20)
           .fillColor(this.isDownloading ? '#e86090' : this.secondaryText)
           .opacity(this.isDownloading ? 0.5 : 1)
+          .scale({ x: this.isDownloading ? 0.9 : 1, y: this.isDownloading ? 0.9 : 1 })
+          .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
           .onClick(() => { this.onDownload() })
 
         Image($r('app.media.ic_more'))
           .width(20).height(20).fillColor(this.secondaryText)
+          .stateStyles({
+            normal: { .opacity(1).scale({ x: 1, y: 1 }) },
+            pressed: { .opacity(0.55).scale({ x: MotionTokens.CHIP_PRESSED_SCALE,
+              y: MotionTokens.CHIP_PRESSED_SCALE }) }
+          })
           .onClick((event: ClickEvent) => { this.onMore(event) })
       }
       .padding({ top: 14, bottom: 10 })
@@ -179,13 +193,28 @@ export struct PlayerControls {
 
       Row({ space: 20 }) {
         Image($r('app.media.ic_previous')).width(28).height(28)
+          .stateStyles({
+            normal: { .opacity(1).scale({ x: 1, y: 1 }) },
+            pressed: { .opacity(0.55).scale({ x: MotionTokens.PRESSED_SCALE, y: MotionTokens.PRESSED_SCALE }) }
+          })
           .onClick(() => { this.onPrev() })
 
         Image(this.status === PlayerStatus.PLAYING ? $r('app.media.ic_pause') : $r('app.media.ic_play'))
           .width(48).height(48)
+          .scale({ x: this.status === PlayerStatus.PLAYING ? 1.06 : 1,
+            y: this.status === PlayerStatus.PLAYING ? 1.06 : 1 })
+          .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
+          .stateStyles({
+            normal: { .opacity(1) },
+            pressed: { .opacity(0.58) }
+          })
           .onClick(() => { this.onToggle() })
 
         Image($r('app.media.ic_next')).width(28).height(28)
+          .stateStyles({
+            normal: { .opacity(1).scale({ x: 1, y: 1 }) },
+            pressed: { .opacity(0.55).scale({ x: MotionTokens.PRESSED_SCALE, y: MotionTokens.PRESSED_SCALE }) }
+          })
           .onClick(() => { this.onNext() })
       }
       .padding({ top: 12, bottom: 4 })
@@ -194,6 +223,12 @@ export struct PlayerControls {
       Row({ space: 16 }) {
         Image(this.getModeIconRes())
           .width(20).height(20).fillColor(this.accentColor)
+          .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
+          .stateStyles({
+            normal: { .opacity(1).scale({ x: 1, y: 1 }) },
+            pressed: { .opacity(0.55).scale({ x: MotionTokens.CHIP_PRESSED_SCALE,
+              y: MotionTokens.CHIP_PRESSED_SCALE }) }
+          })
           .onClick(() => { this.onModeChange() })
       }
       .width('100%').justifyContent(FlexAlign.Center).padding({ bottom: 8 })

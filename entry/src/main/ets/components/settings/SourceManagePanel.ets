@@ -1,6 +1,7 @@
 import { SourceManager } from 'hsp_source'
 import { SourceInstance, SourceTestResult } from 'common'
 import { ThemeColors } from '../../theme/ThemeColors'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 音源管理面板组件
@@ -48,6 +49,10 @@ export struct SourceManagePanel {
         Text('支持 .js 音源脚本').fontSize(11).fontColor(this.secondaryText)
       }
       .width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
+      .stateStyles({
+        normal: { .opacity(1).scale({ x: 1, y: 1 }) },
+        pressed: { .opacity(0.75).scale({ x: MotionTokens.PRESSED_SCALE, y: MotionTokens.PRESSED_SCALE }) }
+      })
       .onClick((event: ClickEvent) => { this.showImportDialog(event) })
 
       if (this.importStatus) {
@@ -58,9 +63,12 @@ export struct SourceManagePanel {
             (this.importStatus.startsWith('正在') ? '#b388ff' : '#e86090'))
           .width('100%')
           .padding({ left: 16, right: 16, bottom: 8 })
+          .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.NORMAL, curve: Curve.EaseOut })
+            .combine(TransitionEffect.translate({ x: 0, y: -6 })
+              .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })))
       }
 
-      ForEach(this.sources, (source: SourceInstance) => {
+      ForEach(this.sources, (source: SourceInstance, index: number) => {
         Row({ space: 12 }) {
           Column({ space: 2 }) {
             Text(source.info.name).fontSize(14).fontColor(this.primaryText).fontWeight(FontWeight.Medium)
@@ -86,12 +94,19 @@ export struct SourceManagePanel {
             .padding({ left: 8, right: 8, top: 3, bottom: 3 })
             .backgroundColor('#20b388ff')
             .borderRadius(6)
+            .stateStyles({
+              normal: { .opacity(1).scale({ x: 1, y: 1 }) },
+              pressed: { .opacity(0.72).scale({ x: MotionTokens.CHIP_PRESSED_SCALE,
+                y: MotionTokens.CHIP_PRESSED_SCALE }) }
+            })
             .onClick(() => { this.testSource(source.info.id) })
 
           // 内置搜索源始终启用；只有用户导入的解析源采用单选开关。
           if (!this.isProtectedSource(source.info.id)) {
             Toggle({ type: ToggleType.Switch, isOn: source.enabled })
               .selectedColor('#b388ff')
+              .scale({ x: source.enabled ? 1.04 : 1, y: source.enabled ? 1.04 : 1 })
+              .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
               .onChange((isOn: boolean) => { this.onToggleSource(source.info.id, isOn) })
           }
 
@@ -102,7 +117,12 @@ export struct SourceManagePanel {
         }
         .width('100%')
         .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-      })
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
+          delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
+          .combine(TransitionEffect.translate({ x: 0, y: 10 })
+            .animation({ duration: MotionTokens.LIST, delay: MotionTokens.staggerDelay(index),
+              curve: Curve.FastOutSlowIn })))
+      }, (source: SourceInstance) => source.info.id)
     }
     .width('100%')
     .padding({ left: 8, right: 8, top: 4, bottom: 4 })

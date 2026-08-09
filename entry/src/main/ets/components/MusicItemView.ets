@@ -6,6 +6,7 @@ import { PlaylistNameDialog } from './PlaylistNameDialog'
 import { SourcePickerDialog } from './common/SourcePickerDialog'
 import { PlaylistPickerDialog } from './common/PlaylistPickerDialog'
 import { DialogPosUtils } from '../utils/DialogPosUtils'
+import { MotionTokens } from '../theme/MotionTokens'
 
 @Component
 export struct MusicItemView {
@@ -17,6 +18,7 @@ export struct MusicItemView {
   private sourcePickerController: CustomDialogController | null = null
   private playlistPickerController: CustomDialogController | null = null
   private nameDialog: CustomDialogController | null = null
+  @State itemPressed: boolean = false
 
   private get primaryText(): ResourceColor { return this.isDark ? '#e8e0f8' : '#1a1525' }
   private get secondaryText(): ResourceColor { return this.isDark ? '#7a6f98' : '#6b6088' }
@@ -75,6 +77,11 @@ export struct MusicItemView {
     .padding({ left: 16, right: 16, top: 10, bottom: 10 })
     .backgroundColor(this.cardBg)
     .borderRadius(12)
+    .scale({ x: this.itemPressed ? MotionTokens.PRESSED_SCALE : 1,
+      y: this.itemPressed ? MotionTokens.PRESSED_SCALE : 1 })
+    .opacity(this.itemPressed ? 0.86 : 1)
+    .animation({ duration: MotionTokens.FAST, curve: Curve.EaseOut })
+    .onTouch((event: TouchEvent) => { this.itemPressed = event.type === TouchType.Down })
     .onClick(() => {
       const player = PlayerEngine.getInstance()
       if (this.queueSongs && this.queueSongs.length > 0) {

@@ -2,6 +2,7 @@ import { AppBackground } from '../common/AppBackground'
 import { PortraitLandingPage } from './PortraitLandingPage'
 import { PortraitPlayer } from './PortraitPlayer'
 import { PortraitLyricPage } from './PortraitLyricPage'
+import { MotionTokens } from '../../theme/MotionTokens'
 
 /**
  * 竖屏布局容器（Swiper 三页横滑）
@@ -30,6 +31,8 @@ export struct PortraitPage {
       .index(1)
       .loop(false)
       .indicator(false)
+      .duration(MotionTokens.PAGE)
+      .curve(Curve.FastOutSlowIn)
       .width('100%')
       .height('100%')
     }

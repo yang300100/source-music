@@ -14,6 +14,35 @@ import {
 import { SourceManager } from 'hsp_source'
 import { PlayQueue } from '../queue/PlayQueue'
 import { MediaSession } from './MediaSession'
+import audioEqBridgeUntyped from 'libaudio_eq_bridge.so'
+
+interface AudioEqBridgeApi {
+  isSupported(): boolean
+  initialize(): boolean
+  release(): void
+  setEnabled(enabled: boolean): boolean
+  setGains(gains: number[]): boolean
+  getGains(): number[]
+  setPreset(presetName: string): boolean
+  playerStart(url: string, positionMs: number, autoPlay: boolean): boolean
+  playerStop(): void
+  playerPause(): boolean
+  playerResume(): boolean
+  playerSeek(positionMs: number): boolean
+  playerGetState(): number
+  playerGetPosition(): number
+  playerGetDuration(): number
+  playerGetLastError(): string
+}
+
+const audioEqBridgeNative: AudioEqBridgeApi = audioEqBridgeUntyped as AudioEqBridgeApi
+
+const NATIVE_STATE_IDLE = 0
+const NATIVE_STATE_LOADING = 1
+const NATIVE_STATE_PLAYING = 2
+const NATIVE_STATE_PAUSED = 3
+const NATIVE_STATE_COMPLETED = 4
+const NATIVE_STATE_ERROR = 5
 
 /**
  * 播放器引擎核心
@@ -60,6 +89,18 @@ export class PlayerEngine {
   autoCleanPlayed: boolean = false
   /** 默认音质（128k / 320k / flac） */
   defaultQuality: MusicQuality = MusicQuality.HIGH
+  /** 真正作用于 PCM 的十段均衡器设置 */
+  eqSupported: boolean = false
+  eqEnabled: boolean = false
+  eqPreset: string = 'default'
+  eqGains: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  private usingNativeEq: boolean = false
+  private nativeCompletionHandled: boolean = false
+  private nativeErrorHandled: boolean = false
+  private forceAvFallbackOnce: boolean = false
+  private activePlayUrl: string = ''
+  private pendingStartPositionMs: number = 0
+  private pendingAutoPlay: boolean = true
   private lastProgressSave: number = 0
   private static instance: PlayerEngine | null = null
 
@@ -76,6 +117,7 @@ export class PlayerEngine {
       this.avPlayer = await media.createAVPlayer()
       this.setupCallbacks()
       LogUtils.info('AVPlayer 初始化完成')
+      await this.loadEqSettings()
 
       // 创建媒体会话（需要 Context）
       if (context) {
@@ -106,6 +148,91 @@ export class PlayerEngine {
     }
     this.mediaSession.onSeekCommand = (time: number) => {
       this.seekTo(time)
+    }
+  }
+
+  /** 读取并应用持久化的均衡器设置。 */
+  private async loadEqSettings(): Promise<void> {
+    try {
+      this.eqSupported = audioEqBridgeNative.isSupported()
+      this.eqEnabled = (await StorageUtils.getString('eq_enabled', 'false')) === 'true'
+      this.eqPreset = await StorageUtils.getString('eq_preset', 'default')
+      const savedGains = await StorageUtils.getObject<number[]>('eq_gains', this.eqGains)
+      if (savedGains.length === 10) {
+        this.eqGains = savedGains.map((value: number) => Math.round(value))
+      }
+      if (this.eqSupported && this.eqEnabled) {
+        const ready = audioEqBridgeNative.initialize()
+        if (!ready || !audioEqBridgeNative.setGains(this.eqGains) ||
+          !audioEqBridgeNative.setEnabled(true)) {
+          this.eqEnabled = false
+          await StorageUtils.putString('eq_enabled', 'false')
+          LogUtils.warn('[EQ] 已保存的均衡器设置初始化失败，自动关闭')
+        }
+      }
+      LogUtils.info(`[EQ] 支持=${this.eqSupported}, 启用=${this.eqEnabled}, 预设=${this.eqPreset}`)
+    } catch (err) {
+      this.eqSupported = false
+      this.eqEnabled = false
+      LogUtils.warn(`[EQ] 设置加载失败: ${JSON.stringify(err)}`)
+    }
+  }
+
+  /** 开关 EQ；从普通播放器开启时会从当前位置重启到原生效果链。 */
+  async setEqEnabled(enabled: boolean): Promise<boolean> {
+    if (enabled && !this.eqSupported) return false
+    try {
+      if (enabled) {
+        if (!audioEqBridgeNative.initialize() || !audioEqBridgeNative.setGains(this.eqGains) ||
+          !audioEqBridgeNative.setEnabled(true)) return false
+      } else if (audioEqBridgeNative.initialize()) {
+        audioEqBridgeNative.setEnabled(false)
+      }
+      const needsSwitch = enabled && !this.usingNativeEq && this.currentSong !== null &&
+        (this.status === PlayerStatus.PLAYING || this.status === PlayerStatus.PAUSED)
+      this.eqEnabled = enabled
+      await StorageUtils.putString('eq_enabled', enabled ? 'true' : 'false')
+      if (needsSwitch && this.currentSong) {
+        this.pendingStartPositionMs = this.currentProgress
+        this.pendingAutoPlay = this.status === PlayerStatus.PLAYING
+        await this.play(this.currentSong, true)
+      }
+      return true
+    } catch (err) {
+      LogUtils.warn(`[EQ] 开关失败: ${JSON.stringify(err)}`)
+      return false
+    }
+  }
+
+  /** 应用系统预设，并同步实际十段数值。 */
+  async setEqPreset(preset: string): Promise<boolean> {
+    try {
+      if (!audioEqBridgeNative.initialize() || !audioEqBridgeNative.setPreset(preset)) return false
+      this.eqPreset = preset
+      this.eqGains = audioEqBridgeNative.getGains()
+      await StorageUtils.putString('eq_preset', preset)
+      await StorageUtils.putObject('eq_gains', this.eqGains)
+      return true
+    } catch (err) {
+      LogUtils.warn(`[EQ] 预设应用失败: ${JSON.stringify(err)}`)
+      return false
+    }
+  }
+
+  /** 实时应用自定义十段增益，范围限制为 -12dB 到 +12dB。 */
+  async setEqGains(gains: number[]): Promise<boolean> {
+    if (gains.length !== 10) return false
+    const normalized = gains.map((value: number) => Math.max(-12, Math.min(12, Math.round(value))))
+    try {
+      if (!audioEqBridgeNative.initialize() || !audioEqBridgeNative.setGains(normalized)) return false
+      this.eqPreset = 'custom'
+      this.eqGains = normalized
+      await StorageUtils.putString('eq_preset', 'custom')
+      await StorageUtils.putObject('eq_gains', normalized)
+      return true
+    } catch (err) {
+      LogUtils.warn(`[EQ] 自定义增益应用失败: ${JSON.stringify(err)}`)
+      return false
     }
   }
 
@@ -198,6 +325,8 @@ export class PlayerEngine {
       // 新歌开始播放：重置重试计数和预加载标志
       this.retryNum = 0
       this.preloadedNext = false
+      this.pendingStartPositionMs = 0
+      this.pendingAutoPlay = true
     }
     // 取消挂起的跳下一首定时器
     if (this.errorSkipTimer !== null) {
@@ -210,6 +339,10 @@ export class PlayerEngine {
 
     // 立即暂停旧歌（新歌 URL 解析期间旧歌不再继续响；不判断avState，任何状态都尝试）
     if (!isRefresh) {
+      if (this.usingNativeEq) {
+        audioEqBridgeNative.playerStop()
+        this.usingNativeEq = false
+      }
       try {
         await this.avPlayer.pause()
         LogUtils.info('[播放] 已暂停旧歌，等待新歌URL')
@@ -301,78 +434,21 @@ export class PlayerEngine {
         return
       }
       LogUtils.info(`[播放] URL: ${playUrl.substring(0, 150)}`)
+      this.activePlayUrl = playUrl
 
       const playInfoImgUrl = musicInfo.imgUrl ?? ''
       if (playInfoImgUrl && playInfoImgUrl.length > 0) {
         this.currentSong!.imgUrl = playInfoImgUrl
       }
 
-      LogUtils.info(`[播放] 开始 reset (当前avState=${this.currentAvState})`)
-      if (this.currentAvState === 'idle') {
-        LogUtils.info('[播放] avState=idle，跳过reset')
-      } else {
-        try {
-          await this.avPlayer.reset()
-        } catch (resetErr) {
-          LogUtils.warn('[播放] reset异常，尝试继续', JSON.stringify(resetErr))
-        }
-      }
-      if (myGen !== this.playGeneration) {
-        LogUtils.info(`[播放] gen=${myGen} reset后已过期，跳过`)
+      const playbackStarted = await this.startResolvedPlayback(playUrl, myGen)
+      if (!playbackStarted) {
+        this.status = PlayerStatus.ERROR
+        this.stopLoadingTimer()
+        if (this.onPlayError) this.onPlayError('播放器启动失败，自动切换下一首')
+        this.scheduleErrorSkip()
         return
       }
-      LogUtils.info(`[播放] reset 完成, avState=${this.currentAvState}`)
-
-      if (playUrl.startsWith('file://')) {
-        const filePath = playUrl.replace('file://', '')
-        const fdFile = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
-        const stat = fileIo.statSync(filePath)
-        const fdDesc: media.AVFileDescriptor = {
-          fd: fdFile.fd,
-          offset: 0,
-          length: stat.size
-        }
-        this.avPlayer.fdSrc = fdDesc
-      } else {
-        LogUtils.info('[播放] 设置 URL 数据源')
-        this.avPlayer.url = playUrl
-        const stateDeadline = Date.now() + 8000
-        while (this.currentAvState !== 'initialized' && Date.now() < stateDeadline) {
-          await new Promise<void>((resolve) => setTimeout(resolve, 50))
-          if (myGen !== this.playGeneration) {
-            LogUtils.info(`[播放] gen=${myGen} 等待URL时已过期，跳过`)
-            return
-          }
-        }
-        LogUtils.info(`[播放] 数据源状态: ${this.currentAvState}`)
-        if (this.currentAvState !== 'initialized') {
-          LogUtils.error(`URL 设置超时，状态: ${this.currentAvState}`)
-          this.status = PlayerStatus.ERROR
-          this.stopLoadingTimer()
-          if (this.onPlayError) {
-            this.onPlayError('播放地址加载超时，自动切换下一首')
-          }
-          this.scheduleErrorSkip()
-          return
-        }
-      }
-
-      this.status = PlayerStatus.BUFFERING
-      LogUtils.info(`[播放] gen=${myGen} 开始 prepare, avState=${this.currentAvState}`)
-      await this.avPlayer.prepare()
-      if (myGen !== this.playGeneration) {
-        LogUtils.info(`[播放] gen=${myGen} prepare后已过期，跳过`)
-        return
-      }
-      LogUtils.info(`[播放] gen=${myGen} prepare 完成, avState=${this.currentAvState}, status=${this.status}`)
-      await this.avPlayer.play()
-      if (myGen !== this.playGeneration) {
-        LogUtils.info(`[播放] gen=${myGen} avPlayer.play()后已过期，跳过`)
-        return
-      }
-      LogUtils.info(`[播放] gen=${myGen} avPlayer.play() 完成, avState=${this.currentAvState}, status=${this.status}`)
-      // 播放已开始，取消加载超时定时器
-      this.stopLoadingTimer()
 
       // 恢复上次播放进度（开启时且非刷新重试）
       if (this.savePlayProgress && !isRefresh) {
@@ -461,6 +537,27 @@ export class PlayerEngine {
   /** 暂停/继续切换 */
   async togglePlay(): Promise<void> {
     if (!this.avPlayer) return
+    if (this.usingNativeEq) {
+      if (this.status === PlayerStatus.PLAYING) {
+        if (audioEqBridgeNative.playerPause()) {
+          this.status = PlayerStatus.PAUSED
+          this.mediaSession.updatePlaybackState(PlayerStatus.PAUSED, this.currentProgress, this.duration)
+        }
+      } else if (this.status === PlayerStatus.PAUSED) {
+        if (audioEqBridgeNative.playerResume()) {
+          this.status = PlayerStatus.PLAYING
+          this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, this.currentProgress, this.duration)
+        }
+      } else if (this.status === PlayerStatus.LOADING || this.status === PlayerStatus.BUFFERING) {
+        this.playGeneration++
+        audioEqBridgeNative.playerStop()
+        this.usingNativeEq = false
+        this.stopLoadingTimer()
+        this.stopProgressTimer()
+        this.status = PlayerStatus.IDLE
+      }
+      return
+    }
     LogUtils.info(`[togglePlay] status=${this.status}, avState=${this.currentAvState}, playGen=${this.playGeneration}`)
     if (this.status === PlayerStatus.PLAYING) {
       LogUtils.info('[togglePlay] → 暂停')
@@ -519,6 +616,17 @@ export class PlayerEngine {
   /** 跳转到指定进度（毫秒） */
   async seekTo(timeMs: number): Promise<void> {
     if (!this.avPlayer) return
+    if (this.usingNativeEq) {
+      if (audioEqBridgeNative.playerSeek(timeMs)) {
+        this.currentProgress = timeMs
+        this.status = PlayerStatus.BUFFERING
+        this.nativeCompletionHandled = false
+        this.nativeErrorHandled = false
+      } else {
+        LogUtils.warn(`[EQ] 原生播放器 seek 失败: ${timeMs}ms`)
+      }
+      return
+    }
     try {
       // 记录 seek 前状态，seek 后恢复播放
       const wasPlaying = this.status === PlayerStatus.PLAYING
@@ -555,6 +663,87 @@ export class PlayerEngine {
       this.queue.shuffleForPlayback()
     }
     this.saveQueueState()
+  }
+
+  /** 根据 EQ 开关选择原生效果链或系统 AVPlayer。 */
+  private async startResolvedPlayback(playUrl: string, generation: number): Promise<boolean> {
+    const shouldUseNative = this.eqEnabled && this.eqSupported && !this.forceAvFallbackOnce
+    this.forceAvFallbackOnce = false
+    if (shouldUseNative) {
+      try {
+        const initialized = audioEqBridgeNative.initialize()
+        const gainsApplied = initialized && audioEqBridgeNative.setGains(this.eqGains)
+        const enabled = gainsApplied && audioEqBridgeNative.setEnabled(true)
+        if (enabled) {
+          if (this.currentAvState !== 'idle') {
+            try { await this.avPlayer?.reset() } catch (err) {
+              LogUtils.warn(`[EQ] 切换原生引擎时重置 AVPlayer 失败: ${JSON.stringify(err)}`)
+            }
+          }
+          const position = this.pendingStartPositionMs
+          const autoPlay = this.pendingAutoPlay
+          this.pendingStartPositionMs = 0
+          this.pendingAutoPlay = true
+          if (audioEqBridgeNative.playerStart(playUrl, position, autoPlay)) {
+            this.usingNativeEq = true
+            this.nativeCompletionHandled = false
+            this.nativeErrorHandled = false
+            this.status = PlayerStatus.BUFFERING
+            this.startProgressTimer()
+            LogUtils.info(`[EQ] 已切换到原生十段均衡器播放链，起点=${position}ms`)
+            return true
+          }
+        }
+      } catch (err) {
+        LogUtils.warn(`[EQ] 原生播放链启动异常，回退 AVPlayer: ${JSON.stringify(err)}`)
+      }
+      audioEqBridgeNative.playerStop()
+      this.usingNativeEq = false
+      if (this.onPlayError) this.onPlayError('均衡器播放链不可用，已自动使用普通播放')
+    }
+
+    LogUtils.info(`[播放] 使用 AVPlayer，开始 reset (当前avState=${this.currentAvState})`)
+    if (this.currentAvState !== 'idle') {
+      try { await this.avPlayer?.reset() } catch (resetErr) {
+        LogUtils.warn('[播放] reset异常，尝试继续', JSON.stringify(resetErr))
+      }
+    }
+    if (generation !== this.playGeneration || !this.avPlayer) return false
+
+    if (playUrl.startsWith('file://')) {
+      const filePath = playUrl.replace('file://', '')
+      const fdFile = fileIo.openSync(filePath, fileIo.OpenMode.READ_ONLY)
+      const stat = fileIo.statSync(filePath)
+      const fdDesc: media.AVFileDescriptor = { fd: fdFile.fd, offset: 0, length: stat.size }
+      this.avPlayer.fdSrc = fdDesc
+    } else {
+      this.avPlayer.url = playUrl
+      const stateDeadline = Date.now() + 8000
+      while (this.currentAvState !== 'initialized' && Date.now() < stateDeadline) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 50))
+        if (generation !== this.playGeneration) return false
+      }
+      if (this.currentAvState !== 'initialized') {
+        LogUtils.error(`URL 设置超时，状态: ${this.currentAvState}`)
+        return false
+      }
+    }
+
+    this.usingNativeEq = false
+    this.status = PlayerStatus.BUFFERING
+    await this.avPlayer.prepare()
+    if (generation !== this.playGeneration) return false
+    await this.avPlayer.play()
+    if (generation !== this.playGeneration) return false
+    if (this.pendingStartPositionMs > 0) {
+      await this.avPlayer.seek(this.pendingStartPositionMs)
+      this.currentProgress = this.pendingStartPositionMs
+    }
+    if (!this.pendingAutoPlay) await this.avPlayer.pause()
+    this.pendingStartPositionMs = 0
+    this.pendingAutoPlay = true
+    this.stopLoadingTimer()
+    return true
   }
 
   /** 播放完成处理 */
@@ -608,6 +797,37 @@ export class PlayerEngine {
   private startProgressTimer(): void {
     this.stopProgressTimer()
     this.progressTimer = setInterval(() => {
+      if (this.usingNativeEq) {
+        const nativeState = audioEqBridgeNative.playerGetState()
+        this.currentProgress = audioEqBridgeNative.playerGetPosition()
+        const nativeDuration = audioEqBridgeNative.playerGetDuration()
+        if (nativeDuration > 0) this.duration = nativeDuration
+        if (nativeState === NATIVE_STATE_LOADING) {
+          this.status = PlayerStatus.BUFFERING
+        } else if (nativeState === NATIVE_STATE_PLAYING) {
+          this.status = PlayerStatus.PLAYING
+          this.stopLoadingTimer()
+        } else if (nativeState === NATIVE_STATE_PAUSED) {
+          this.status = PlayerStatus.PAUSED
+        } else if (nativeState === NATIVE_STATE_COMPLETED && !this.nativeCompletionHandled) {
+          this.nativeCompletionHandled = true
+          this.handleCompletion()
+          return
+        } else if (nativeState === NATIVE_STATE_ERROR && !this.nativeErrorHandled) {
+          this.nativeErrorHandled = true
+          const message = audioEqBridgeNative.playerGetLastError() || '未知错误'
+          LogUtils.warn(`[EQ] 原生播放失败，自动回退 AVPlayer: ${message}`)
+          if (this.onPlayError) this.onPlayError('均衡器播放失败，已自动回退普通播放')
+          const song = this.currentSong
+          this.pendingStartPositionMs = this.currentProgress
+          this.pendingAutoPlay = true
+          this.forceAvFallbackOnce = true
+          this.usingNativeEq = false
+          audioEqBridgeNative.playerStop()
+          if (song) this.play(song, true)
+          return
+        }
+      }
       if (this.status === PlayerStatus.PLAYING) {
         // 每 5 秒同步一次播放位置到媒体会话（不修改 currentProgress，避免与 timeUpdate 冲突）
         if (this.currentProgress % 5000 < 1000) {
@@ -619,7 +839,7 @@ export class PlayerEngine {
           this.saveProgressNow(this.currentSong)
         }
       }
-    }, 1000)
+    }, this.usingNativeEq ? 500 : 1000)
   }
 
   /** 立即保存当前播放进度（按 songmid+source 记录） */
@@ -655,7 +875,11 @@ export class PlayerEngine {
         setTimeout(() => {
           if (gen !== this.playGeneration) return
           try {
-            this.avPlayer?.seek(progress)
+            if (this.usingNativeEq) {
+              audioEqBridgeNative.playerSeek(progress)
+            } else {
+              this.avPlayer?.seek(progress)
+            }
             this.currentProgress = progress
             this.mediaSession.updatePlaybackState(PlayerStatus.PLAYING, progress, this.duration)
             LogUtils.info(`[进度] seek 完成: ${(progress / 1000).toFixed(1)}s`)
@@ -836,7 +1060,12 @@ export class PlayerEngine {
   }
 
   /** 安全重置 AVPlayer（失败时也设为 IDLE） */
-  private async resetAvPlayer(): Promise<void> {    if (!this.avPlayer) return
+  private async resetAvPlayer(): Promise<void> {
+    if (this.usingNativeEq) {
+      audioEqBridgeNative.playerStop()
+      this.usingNativeEq = false
+    }
+    if (!this.avPlayer) return
     try {
       if (this.currentAvState !== 'idle') {
         await this.avPlayer.reset()
@@ -858,6 +1087,9 @@ export class PlayerEngine {
       clearTimeout(this.errorSkipTimer)
       this.errorSkipTimer = null
     }
+    audioEqBridgeNative.playerStop()
+    audioEqBridgeNative.release()
+    this.usingNativeEq = false
     await this.mediaSession.destroy()
     if (this.avPlayer) {
       await this.avPlayer.release()
