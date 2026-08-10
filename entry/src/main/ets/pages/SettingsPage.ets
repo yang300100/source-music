@@ -184,57 +184,30 @@ export struct SettingsContent {
 
   build() {
     if (this.panelSide === 'right') {
-      // 右侧面板：侧栏贴右缘，详情在左展开
       Stack({ alignContent: Alignment.End }) {
-        if (this.selectedCategory) {
-          Column() {
-            this.DetailTitle()
-            List({ space: 6 }) {
-              ListItem() {
-                this.DetailContent()
-              }
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: 8 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-            .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
-            .padding({ left: 8, right: 8 })
-          }
-          .width('100%').height('100%')
-          .padding({ left: 20, right: 20, top: 0, bottom: 12 })
-          .padding({ right: 160 })
-          .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-            .combine(TransitionEffect.translate({ x: 12, y: 0 })
-              .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-        }
+        // 每个分类独立 if 分支，切换时销毁旧分支并重建，触发过渡动画
+        if (this.selectedCategory === 'musicImport') { this.DetailPanel('音乐导入', 'musicImport', true) }
+        else if (this.selectedCategory === 'source') { this.DetailPanel('音源管理', 'source', true) }
+        else if (this.selectedCategory === 'appearance') { this.DetailPanel('外观', 'appearance', true) }
+        else if (this.selectedCategory === 'audio') { this.DetailPanel('音质', 'audio', true) }
+        else if (this.selectedCategory === 'play') { this.DetailPanel('播放', 'play', true) }
+        else if (this.selectedCategory === 'lyric') { this.DetailPanel('歌词', 'lyric', true) }
+        else if (this.selectedCategory === 'data') { this.DetailPanel('数据', 'data', true) }
+        else if (this.selectedCategory === 'about') { this.DetailPanel('关于', 'about', true) }
 
         this.Sidebar(true)
       }
       .width('100%').height('100%').clip(true)
     } else {
-      // 左侧面板：侧栏贴左缘，详情在右展开
       Stack({ alignContent: Alignment.Start }) {
-        if (this.selectedCategory) {
-          Column() {
-            this.DetailTitle()
-            List({ space: 6 }) {
-              ListItem() {
-                this.DetailContent()
-              }
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: 8 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-            .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
-            .padding({ left: 8, right: 8 })
-          }
-          .width('100%').height('100%')
-          .padding({ left: 20, right: 20, top: 0, bottom: 12 })
-          .padding({ left: 160 })
-          .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
-            .combine(TransitionEffect.translate({ x: -16, y: 0 })
-              .animation({ duration: 350, curve: Curve.FastOutSlowIn })))
-        }
+        if (this.selectedCategory === 'musicImport') { this.DetailPanel('音乐导入', 'musicImport', false) }
+        else if (this.selectedCategory === 'source') { this.DetailPanel('音源管理', 'source', false) }
+        else if (this.selectedCategory === 'appearance') { this.DetailPanel('外观', 'appearance', false) }
+        else if (this.selectedCategory === 'audio') { this.DetailPanel('音质', 'audio', false) }
+        else if (this.selectedCategory === 'play') { this.DetailPanel('播放', 'play', false) }
+        else if (this.selectedCategory === 'lyric') { this.DetailPanel('歌词', 'lyric', false) }
+        else if (this.selectedCategory === 'data') { this.DetailPanel('数据', 'data', false) }
+        else if (this.selectedCategory === 'about') { this.DetailPanel('关于', 'about', false) }
 
         this.Sidebar(false)
       }
@@ -243,23 +216,42 @@ export struct SettingsContent {
   }
 
   @Builder
-  DetailTitle() {
-    Text(this.getCategoryName(this.selectedCategory))
-      .fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
-      .padding({ left: 8, top: 16, bottom: 12 })
-      .width('100%')
+  DetailPanel(title: string, category: string, rightSide: boolean) {
+    Column() {
+      Text(title)
+        .fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
+        .padding({ left: 8, top: 16, bottom: 12 })
+        .width('100%')
+
+      List({ space: 6 }) {
+        ListItem() {
+          this.ContentForCategory(category)
+        }
+        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+          .combine(TransitionEffect.translate({ x: 0, y: 8 })
+            .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
+      }
+      .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+      .padding({ left: 8, right: 8 })
+    }
+    .width('100%').height('100%')
+    .padding({ left: 20, right: 20, top: 0, bottom: 12 })
+    .padding(rightSide ? { right: 160 } : { left: 160 })
+    .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+      .combine(TransitionEffect.translate({ x: rightSide ? 12 : -12, y: 0 })
+        .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
   }
 
   @Builder
-  DetailContent() {
+  ContentForCategory(category: string) {
     Column({ space: 10 }) {
-      if (this.selectedCategory === 'musicImport') {
+      if (category === 'musicImport') {
         SettingsRow({ title: '导入本地音乐', value: '选择音频文件', showArrow: true,
           onRowClick: (event: ClickEvent) => { void event; this.importLocalMusic() } })
         SettingsRow({ title: '扫描文件夹导入',
           subtitle: '选择文件夹，自动解析封面/歌手等信息', showArrow: true,
           onRowClick: (event: ClickEvent) => { void event; this.importLocalFolder() } })
-      } else if (this.selectedCategory === 'source') {
+      } else if (category === 'source') {
         SourceManagePanel({
           sources: this.sources, importStatus: this.sourceImportStatus,
           onToggleSource: (srcId: string, enabled: boolean) => { this.toggleSource(srcId, enabled) },
@@ -272,7 +264,7 @@ export struct SettingsContent {
           subtitle: this.extendedSearchEnabled ? '允许声明 search 的源参与搜索' : '标准解析：自定义源只解析播放',
           showToggle: true, isOn: this.extendedSearchEnabled,
           onToggle: (checked: boolean) => { this.toggleExtendedSearch(checked) } })
-      } else if (this.selectedCategory === 'appearance') {
+      } else if (category === 'appearance') {
         SettingsRow({ title: '自动跟随系统主题', showToggle: true, isOn: this.autoThemeEnabled,
           onToggle: (checked: boolean) => { this.toggleAutoTheme(checked) } })
         SettingsRow({ title: '主题', value: this.themeMode === 'dark' ? '深色' : '浅色',
@@ -285,14 +277,14 @@ export struct SettingsContent {
           SettingsRow({ title: '恢复默认背景',
             onRowClick: (event: ClickEvent) => { void event; this.resetCustomBg() } })
         }
-      } else if (this.selectedCategory === 'audio') {
+      } else if (category === 'audio') {
         SettingsRow({ title: '默认音质', value: this.defaultQualityText,
           onRowClick: (event: ClickEvent) => { this.showQualityDialog(event) } })
         SettingsRow({ title: '十段均衡器',
           subtitle: this.eqSupported ? '31Hz—16kHz，支持预设与自定义调节' : '当前设备系统版本不支持',
           value: this.eqSupported ? (this.eqEnabled ? this.eqPresetText : '关闭') : '不支持',
           showArrow: this.eqSupported, onRowClick: (event: ClickEvent) => { this.showEqDialog(event) } })
-      } else if (this.selectedCategory === 'play') {
+      } else if (category === 'play') {
         SettingsRow({ title: '定时关闭', value: this.sleepRemainText,
           onRowClick: (event: ClickEvent) => { this.showSleepTimerDialog(event) } })
         SettingsRow({ title: '保存播放进度', subtitle: '下次播放时从断点继续',
@@ -304,17 +296,17 @@ export struct SettingsContent {
         SettingsRow({ title: '启动时自动播放上次歌曲',
           showToggle: true, isOn: this.autoPlayEnabled,
           onToggle: (checked: boolean) => { this.toggleAutoPlay(checked) } })
-      } else if (this.selectedCategory === 'lyric') {
+      } else if (category === 'lyric') {
         SettingsRow({ title: '歌词翻译', showToggle: true, isOn: this.lyricShowTranslation,
           onToggle: (checked: boolean) => { this.toggleLyricTranslation(checked) } })
         SettingsRow({ title: '歌词字号', value: `${this.lyricFontSize}`,
           onRowClick: (event: ClickEvent) => { this.showLyricFontDialog(event) } })
-      } else if (this.selectedCategory === 'data') {
+      } else if (category === 'data') {
         SettingsRow({ title: '备份与恢复', showArrow: true,
           onRowClick: (event: ClickEvent) => { this.showBackupDialog(event) } })
         SettingsRow({ title: '清除缓存', value: this.cacheSizeText,
           onRowClick: (event: ClickEvent) => { this.clearCaches(event) } })
-      } else if (this.selectedCategory === 'about') {
+      } else if (category === 'about') {
         Column({ space: 8 }) {
           Text('源音乐').fontSize(24).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
           Text('HarmonyOS 原生音乐播放器').fontSize(14).fontColor(this.secondaryText)
