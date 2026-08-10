@@ -38,6 +38,7 @@ struct Index {
   @State queueIndex: number = -1
   @State playerStatus: PlayerStatus = PlayerStatus.IDLE
   @State playlistHasSelection: boolean = false
+  @State settingsHasSelection: boolean = false
   @State panelWidth: string = '29%'
   @State panelSide: string = 'left'
   /** 竖屏检测（宽 < 高） */
@@ -85,6 +86,9 @@ struct Index {
     if (this.activePanel === 'playlist') {
       // 歌单：未选中时 160vp（与固定侧栏等宽，歌单名不动），选中后扩展显示详情
       width = this.playlistHasSelection ? '34%' : '160vp'
+    } else if (this.activePanel === 'settings') {
+      // 设置：未选中分类时 160vp，选中后 34%
+      width = this.settingsHasSelection ? '34%' : '160vp'
     }
     this.panelWidth = width
   }
@@ -488,7 +492,12 @@ struct Index {
         .combine(TransitionEffect.translate({ x: this.panelSide === 'left' ? -16 : 16, y: 0 })
           .animation({ duration: 280, curve: Curve.FastOutSlowIn })))
     } else if (this.activePanel === 'settings') {
-      SettingsContent()
+      SettingsContent({
+        onSelectionChange: (hasSelection: boolean) => {
+          this.settingsHasSelection = hasSelection
+          this.updatePanelWidth()
+        }
+      })
         .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.FastOutSlowIn })
           .combine(TransitionEffect.translate({ x: this.panelSide === 'left' ? -16 : 16, y: 0 })
             .animation({ duration: 280, curve: Curve.FastOutSlowIn })))
