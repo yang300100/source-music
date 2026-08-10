@@ -189,13 +189,14 @@ export struct SettingsContent {
         if (this.selectedCategory) {
           Column() {
             this.DetailTitle()
-            List() {
+            List({ space: 6 }) {
               ListItem() { this.DetailContent() }
             }
             .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+            .padding({ left: 8, right: 8 })
           }
           .width('100%').height('100%')
-          .padding({ left: 16, right: 16, top: 0, bottom: 8 })
+          .padding({ left: 20, right: 20, top: 0, bottom: 12 })
           .padding({ right: 160 })
           .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
             .combine(TransitionEffect.translate({ x: 16, y: 0 })
@@ -211,13 +212,14 @@ export struct SettingsContent {
         if (this.selectedCategory) {
           Column() {
             this.DetailTitle()
-            List() {
+            List({ space: 6 }) {
               ListItem() { this.DetailContent() }
             }
             .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+            .padding({ left: 8, right: 8 })
           }
           .width('100%').height('100%')
-          .padding({ left: 16, right: 16, top: 0, bottom: 8 })
+          .padding({ left: 20, right: 20, top: 0, bottom: 12 })
           .padding({ left: 160 })
           .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
             .combine(TransitionEffect.translate({ x: -16, y: 0 })
