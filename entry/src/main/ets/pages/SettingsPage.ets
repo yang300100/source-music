@@ -242,7 +242,7 @@ export struct SettingsContent {
 
   @Builder
   DetailContent() {
-    Flex({ direction: FlexDirection.Column, justifyContent: FlexAlign.Start, alignItems: ItemAlign.Start }) {
+    Column({ space: 10 }) {
       if (this.selectedCategory === 'musicImport') {
         SettingsRow({ title: '导入本地音乐', value: '选择音频文件', showArrow: true,
           onRowClick: (event: ClickEvent) => { void event; this.importLocalMusic() } })
@@ -318,7 +318,7 @@ export struct SettingsContent {
         .backdropBlur(20)
       }
     }
-    .width('100%')
+    .width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder
