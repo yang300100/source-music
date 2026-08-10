@@ -114,7 +114,7 @@ export struct SettingsContent {
     { id: 'play', name: '播放', summary: '' },
     { id: 'lyric', name: '歌词', summary: '' },
     { id: 'data', name: '数据', summary: '' },
-    { id: 'about', name: '关于', summary: '源音乐 v0.1.0' }
+    { id: 'about', name: '关于', summary: '源音乐 v0.2.2' }
   ]
 
   // 更新分类摘要
@@ -127,7 +127,7 @@ export struct SettingsContent {
       case 'play': return this.sleepRemainText !== '关闭' ? `定时${this.sleepRemainText}` : ''
       case 'lyric': return `${this.lyricFontSize}`
       case 'data': return this.cacheSizeText
-      case 'about': return '源音乐 v0.1.0'
+      case 'about': return '源音乐 v0.2.2'
       default: return ''
     }
   }
@@ -195,7 +195,7 @@ export struct SettingsContent {
             .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
           }
           .width('100%').height('100%')
-          .padding({ left: 12, right: 12 })
+          .padding({ left: 16, right: 16, top: 0, bottom: 8 })
           .padding({ right: 160 })
           .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
             .combine(TransitionEffect.translate({ x: 16, y: 0 })
@@ -217,7 +217,7 @@ export struct SettingsContent {
             .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
           }
           .width('100%').height('100%')
-          .padding({ left: 12, right: 12 })
+          .padding({ left: 16, right: 16, top: 0, bottom: 8 })
           .padding({ left: 160 })
           .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
             .combine(TransitionEffect.translate({ x: -16, y: 0 })
@@ -303,12 +303,17 @@ export struct SettingsContent {
         SettingsRow({ title: '清除缓存', value: this.cacheSizeText,
           onRowClick: (event: ClickEvent) => { this.clearCaches(event) } })
       } else if (this.selectedCategory === 'about') {
-        Column({ space: 4 }) {
+        Column({ space: 8 }) {
           Text('源音乐').fontSize(24).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
           Text('HarmonyOS 原生音乐播放器').fontSize(14).fontColor(this.secondaryText)
           Text('壳与音源分离架构，兼容 LX Music 社区音源生态').fontSize(12).fontColor(this.secondaryText)
           Text('Version 0.2.2').fontSize(14).fontColor(this.accentColor).margin({ top: 8 })
-        }.width('100%').alignItems(HorizontalAlign.Start).padding(4)
+        }
+        .width('100%').alignItems(HorizontalAlign.Start)
+        .padding(20)
+        .backgroundColor(this.cardBg)
+        .borderRadius(16)
+        .backdropBlur(20)
       }
     }
     .width('100%')

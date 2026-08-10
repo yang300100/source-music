@@ -88,7 +88,7 @@ struct Index {
       width = this.playlistHasSelection ? '34%' : '160vp'
     } else if (this.activePanel === 'settings') {
       // 设置：未选中分类时 160vp，选中后 30%
-      width = this.settingsHasSelection ? '30%' : '160vp'
+      width = this.settingsHasSelection ? '36%' : '160vp'
     }
     this.panelWidth = width
   }
