@@ -178,10 +178,11 @@ export struct PlaylistListContent {
   }
 
   /** 长按歌曲：弹出序号输入对话框，将歌曲移动到目标位置 */
-  private showPositionDialog(song: MusicItem, currentIndex: number, event: ClickEvent): void {
+  private showPositionDialog(song: MusicItem, currentIndex: number, event: GestureEvent): void {
     const pl = this.playlist
     if (!pl) return
-    this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 300, 280)
+    const pos = DialogPosUtils.fromGesture(event)
+    this.dialogPosition = DialogPosUtils.fit(pos, 300, 280)
     this.positionDialogController = new CustomDialogController({
       builder: SongPositionDialog({
         songName: song.name,
@@ -222,10 +223,10 @@ export struct PlaylistListContent {
             List({ space: 4 }) {
               ForEach(this.playlist.songs, (song: MusicItem, index: number) => {
                 ListItem() {
-                  Row({ space: 8 }) {
+                  Row({ space: 4 }) {
                     Text(`${index + 1}`)
-                      .fontSize(12).fontColor(this.secondaryText)
-                      .width(24).textAlign(TextAlign.Center)
+                      .fontSize(11).fontColor(this.secondaryText)
+                      .width(18).textAlign(TextAlign.Center)
                     MusicItemView({ song: song, queueSongs: this.playlist!.songs })
                       .layoutWeight(1)
                   }
@@ -233,8 +234,7 @@ export struct PlaylistListContent {
                 }
                 .swipeAction({ end: { builder: () => { this.DeleteSongBuilder(index) } } })
                 .gesture(LongPressGesture({ repeat: false }).onAction((event: GestureEvent) => {
-                  this.showPositionDialog(song, index, { x: event.fingerList[0]?.localX ?? 0,
-                    y: event.fingerList[0]?.localY ?? 0 } as ClickEvent)
+                  this.showPositionDialog(song, index, event)
                 }))
                 .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
                   delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
@@ -291,10 +291,10 @@ export struct PlaylistListContent {
             List({ space: 4 }) {
               ForEach(this.playlist.songs, (song: MusicItem, index: number) => {
                 ListItem() {
-                  Row({ space: 8 }) {
+                  Row({ space: 4 }) {
                     Text(`${index + 1}`)
-                      .fontSize(12).fontColor(this.secondaryText)
-                      .width(24).textAlign(TextAlign.Center)
+                      .fontSize(11).fontColor(this.secondaryText)
+                      .width(18).textAlign(TextAlign.Center)
                     MusicItemView({ song: song, queueSongs: this.playlist!.songs })
                       .layoutWeight(1)
                   }
@@ -302,8 +302,7 @@ export struct PlaylistListContent {
                 }
                 .swipeAction({ end: { builder: () => { this.DeleteSongBuilder(index) } } })
                 .gesture(LongPressGesture({ repeat: false }).onAction((event: GestureEvent) => {
-                  this.showPositionDialog(song, index, { x: event.fingerList[0]?.localX ?? 0,
-                    y: event.fingerList[0]?.localY ?? 0 } as ClickEvent)
+                  this.showPositionDialog(song, index, event)
                 }))
                 .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
                   delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })

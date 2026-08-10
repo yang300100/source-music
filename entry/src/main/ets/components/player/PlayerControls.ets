@@ -244,6 +244,7 @@ export struct PlayerControls {
       case PlayMode.LOOP_ONE: return $r('app.media.ic_loop_one')
       case PlayMode.LOOP_ALL: return $r('app.media.ic_loop_all')
       case PlayMode.SHUFFLE: return $r('app.media.ic_shuffle')
+      case PlayMode.SEQUENCE: return $r('app.media.ic_sequence')
       default: return $r('app.media.ic_loop_all')
     }
   }
