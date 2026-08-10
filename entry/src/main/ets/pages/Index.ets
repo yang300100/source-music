@@ -515,6 +515,8 @@ struct Index {
       this.activePanel = 'downloads'
     } else if (pageName === 'Settings') {
       this.activePanel = 'settings'
+      // 每次进入设置面板都从窄栏开始，确保逐层展开体验
+      this.settingsHasSelection = false
     } else {
       this.activePanel = 'queue'
     }

@@ -195,7 +195,6 @@ export struct SettingsContent {
           .width('100%').height('100%')
           .padding({ left: 12, right: 12 })
           .padding({ right: 160 })
-          .alignItems(HorizontalAlign.Start)
           .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
             .combine(TransitionEffect.translate({ x: 16, y: 0 })
               .animation({ duration: 350, curve: Curve.FastOutSlowIn })))
@@ -216,7 +215,6 @@ export struct SettingsContent {
           .width('100%').height('100%')
           .padding({ left: 12, right: 12 })
           .padding({ left: 160 })
-          .alignItems(HorizontalAlign.Start)
           .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
             .combine(TransitionEffect.translate({ x: -16, y: 0 })
               .animation({ duration: 350, curve: Curve.FastOutSlowIn })))
@@ -238,7 +236,7 @@ export struct SettingsContent {
 
   @Builder
   DetailContent() {
-    Column({ space: 4 }) {
+    Flex({ direction: FlexDirection.Column, justifyContent: FlexAlign.Start, alignItems: ItemAlign.Start }) {
       if (this.selectedCategory === 'musicImport') {
         SettingsRow({ title: '导入本地音乐', value: '选择音频文件', showArrow: true,
           onRowClick: (event: ClickEvent) => { void event; this.importLocalMusic() } })
@@ -309,7 +307,7 @@ export struct SettingsContent {
         }.width('100%').alignItems(HorizontalAlign.Start).padding(4)
       }
     }
-    .width('100%').alignItems(HorizontalAlign.Start)
+    .width('100%')
   }
 
   @Builder
