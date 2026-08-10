@@ -190,7 +190,12 @@ export struct SettingsContent {
           Column() {
             this.DetailTitle()
             List({ space: 6 }) {
-              ListItem() { this.DetailContent() }
+              ListItem() {
+                this.DetailContent()
+              }
+              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+                .combine(TransitionEffect.translate({ x: 0, y: 8 })
+                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
             }
             .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
             .padding({ left: 8, right: 8 })
@@ -198,9 +203,9 @@ export struct SettingsContent {
           .width('100%').height('100%')
           .padding({ left: 20, right: 20, top: 0, bottom: 12 })
           .padding({ right: 160 })
-          .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
-            .combine(TransitionEffect.translate({ x: 16, y: 0 })
-              .animation({ duration: 350, curve: Curve.FastOutSlowIn })))
+          .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+            .combine(TransitionEffect.translate({ x: 12, y: 0 })
+              .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
         }
 
         this.Sidebar(true)
@@ -213,7 +218,12 @@ export struct SettingsContent {
           Column() {
             this.DetailTitle()
             List({ space: 6 }) {
-              ListItem() { this.DetailContent() }
+              ListItem() {
+                this.DetailContent()
+              }
+              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
+                .combine(TransitionEffect.translate({ x: 0, y: 8 })
+                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
             }
             .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
             .padding({ left: 8, right: 8 })
