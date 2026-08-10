@@ -67,6 +67,8 @@ export struct NowPlayingPanel {
   })
   /** 导航到搜索页面回调 */
   onNavigateSearch: ((keyword: string) => void) | null = null
+  /** 换源选择器（成员保持引用防 GC） */
+  private sourceSwitchController: CustomDialogController | null = null
   /** 添加歌单弹窗（成员保持引用） */
   private pickerController: CustomDialogController | null = null
 
@@ -173,7 +175,7 @@ export struct NowPlayingPanel {
       return
     }
     const pos = DialogPosUtils.fromClickForDialog(event, 320, 440)
-    const ctrl = new CustomDialogController({
+    this.sourceSwitchController = new CustomDialogController({
       builder: SourcePickerDialog({
         songName: song.name,
         searchSources: searchSources,
@@ -200,7 +202,7 @@ export struct NowPlayingPanel {
       offset: { dx: pos.x, dy: pos.y },
       customStyle: true
     })
-    ctrl.open()
+    this.sourceSwitchController.open()
   }
 
   private async toggleFavorite(): Promise<void> {

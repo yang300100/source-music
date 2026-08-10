@@ -42,6 +42,12 @@ export struct PlaylistListContent {
   private renameDialog: CustomDialogController | null = null
   private actionDialogController: CustomDialogController | null = null
   private songActionController: CustomDialogController | null = null
+  /** 位置调整弹窗（成员引用防 GC） */
+  private posDialogController: CustomDialogController | null = null
+  /** 歌单选择器（成员引用防 GC） */
+  private pickerController: CustomDialogController | null = null
+  /** 换源选择器（成员引用防 GC） */
+  private sourceSwitchController: CustomDialogController | null = null
   private dialogPosition: DialogPosition = new DialogPosition()
 
   aboutToAppear(): void {
@@ -263,7 +269,7 @@ export struct PlaylistListContent {
     const pl = this.playlist
     if (!pl) return
     this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 300, 280)
-    const ctrl = new CustomDialogController({
+    this.posDialogController = new CustomDialogController({
       builder: SongPositionDialog({
         songName: song.name,
         currentPosition: index + 1,
@@ -280,7 +286,7 @@ export struct PlaylistListContent {
       offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
       customStyle: true
     })
-    ctrl.open()
+    this.posDialogController.open()
   }
 
   /** 添加到歌单选择器 */
@@ -288,7 +294,7 @@ export struct PlaylistListContent {
     const playlists = this.playlistMgr.getAll()
     const height = Math.min(500, 120 + (playlists.length + 1) * 52)
     const pos = DialogPosUtils.fromClickForDialog(event, 300, height)
-    const ctrl = new CustomDialogController({
+    this.pickerController = new CustomDialogController({
       builder: PlaylistPickerDialog({
         song: song,
         playlists: playlists,
@@ -311,7 +317,7 @@ export struct PlaylistListContent {
       offset: { dx: pos.x, dy: pos.y },
       customStyle: true
     })
-    ctrl.open()
+    this.pickerController.open()
   }
 
   /** 歌曲换源选择器 */
@@ -324,7 +330,7 @@ export struct PlaylistListContent {
       return
     }
     const pos = DialogPosUtils.fromClickForDialog(event, 320, 440)
-    const ctrl = new CustomDialogController({
+    this.sourceSwitchController = new CustomDialogController({
       builder: SourcePickerDialog({
         songName: song.name,
         searchSources: searchSources,
@@ -338,7 +344,7 @@ export struct PlaylistListContent {
       offset: { dx: pos.x, dy: pos.y },
       customStyle: true
     })
-    ctrl.open()
+    this.sourceSwitchController.open()
   }
 
   private async performSourceSwitch(song: MusicItem, sourceId: string): Promise<void> {
