@@ -295,7 +295,12 @@ struct Index {
             capsuleVisible: this.capsuleVisible,
             dockSide: this.capsuleDockSide,
             onSelect: (pageName: string) => { this.handleTabSelect(pageName) },
-            onExpand: (isLeft: boolean) => { this.panelSide = isLeft ? 'left' : 'right' },
+            onExpand: (isLeft: boolean) => {
+              this.panelSide = isLeft ? 'left' : 'right'
+              this.settingsHasSelection = false
+              this.playlistHasSelection = false
+              this.updatePanelWidth()
+            },
             onSideChange: (isLeft: boolean) => {
               this.panelSide = isLeft ? 'left' : 'right'
               // 切换面板侧时重置歌单和设置的展开状态，避免宽度残留
@@ -402,11 +407,17 @@ struct Index {
         this.capsuleDockSide = 'right'
         this.capsuleExpanded = true
         this.capsuleVisible = true
+        this.settingsHasSelection = false
+        this.playlistHasSelection = false
+        this.updatePanelWidth()
       } else if (this.swipeX > 80) {
         this.panelSide = 'left'
         this.capsuleDockSide = 'left'
         this.capsuleExpanded = true
         this.capsuleVisible = true
+        this.settingsHasSelection = false
+        this.playlistHasSelection = false
+        this.updatePanelWidth()
       }
     }
     this.swipeX = 0

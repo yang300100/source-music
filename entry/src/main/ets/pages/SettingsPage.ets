@@ -188,12 +188,9 @@ export struct SettingsContent {
       Stack({ alignContent: Alignment.End }) {
         if (this.selectedCategory) {
           Column() {
-            Scroll() {
-              Column() {
-                this.DetailTitle()
-                this.DetailContent()
-              }
-              .width('100%')
+            this.DetailTitle()
+            List() {
+              ListItem() { this.DetailContent() }
             }
             .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
           }

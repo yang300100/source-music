@@ -43,6 +43,14 @@ export struct NavCapsule {
   /** 展开态胶囊宽度 */
   private readonly capsuleWidth: number = 72
 
+  /**
+   * 胶囊实际高度：每个入口 56vp、入口间距 6vp、上下内边距共 20vp。
+   * 外层始终保留这个尺寸，避免隐藏退场时容器塌缩到 0 导致绝对定位内容瞬间跳位。
+   */
+  private get capsuleHeight(): number {
+    return this.tabs.length * 56 + Math.max(0, this.tabs.length - 1) * 6 + 20
+  }
+
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
   private get accentColor(): ResourceColor { return ThemeColors.accentColor() }
   private get capsuleBg(): ResourceColor { return ThemeColors.capsuleBg(this.isDark) }
@@ -64,54 +72,55 @@ export struct NavCapsule {
 
   build() {
     Stack() {
-      if (this.capsuleVisible) {
-        Column({ space: 6 }) {
-          ForEach(this.tabs, (tab: NavTab) => {
-            Column() {
-              Image(tab.icon)
-                .width(26)
-                .height(26)
-                .fillColor(this.activePage === tab.pageName ? '#ffffff' : this.secondaryText)
-            }
-            .width(56)
-            .height(56)
-            .borderRadius(16)
-            .justifyContent(FlexAlign.Center)
-            .alignItems(HorizontalAlign.Center)
-            .backgroundColor(this.activePage === tab.pageName ? this.accentColor : Color.Transparent)
-            .border(this.activePage === tab.pageName ? {
-              width: 1,
-              color: '#30ffffff'
-            } : { width: 0, color: Color.Transparent })
-            .shadow(this.activePage === tab.pageName ? {
-              radius: 16,
-              color: '#60b388ff',
-              offsetX: 0,
-              offsetY: 4
-            } : { radius: 0, color: Color.Transparent, offsetX: 0, offsetY: 0 })
-            .scale({ x: this.activePage === tab.pageName ? 1.06 : 1,
-              y: this.activePage === tab.pageName ? 1.06 : 1 })
-            .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
-            .stateStyles({
-              normal: { .opacity(1) },
-              pressed: { .opacity(0.62) }
-            })
-            .onClick(() => {
-              this.onSelect(tab.pageName)
-            })
-          }, (tab: NavTab) => tab.pageName)
-        }
-        .padding({ left: 8, right: 8, top: 10, bottom: 10 })
-        .borderRadius(28)
-        .backgroundColor(this.capsuleBg)
-        .backdropBlur(50)
-        .border({ width: 0.5, color: '#d8a8ff' })
-        .shadow({ radius: 20, color: '#30b388ff', offsetX: 0, offsetY: 4 })
-        .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-          .combine(TransitionEffect.scale({ x: 0.88, y: 0.88 })
-            .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
+      Column({ space: 6 }) {
+        ForEach(this.tabs, (tab: NavTab) => {
+          Column() {
+            Image(tab.icon)
+              .width(26)
+              .height(26)
+              .fillColor(this.activePage === tab.pageName ? '#ffffff' : this.secondaryText)
+          }
+          .width(56)
+          .height(56)
+          .borderRadius(16)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .backgroundColor(this.activePage === tab.pageName ? this.accentColor : Color.Transparent)
+          .border(this.activePage === tab.pageName ? {
+            width: 1,
+            color: '#30ffffff'
+          } : { width: 0, color: Color.Transparent })
+          .shadow(this.activePage === tab.pageName ? {
+            radius: 16,
+            color: '#60b388ff',
+            offsetX: 0,
+            offsetY: 4
+          } : { radius: 0, color: Color.Transparent, offsetX: 0, offsetY: 0 })
+          .scale({ x: this.activePage === tab.pageName ? 1.06 : 1,
+            y: this.activePage === tab.pageName ? 1.06 : 1 })
+          .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
+          .stateStyles({
+            normal: { .opacity(1) },
+            pressed: { .opacity(0.62) }
+          })
+          .onClick(() => {
+            this.onSelect(tab.pageName)
+          })
+        }, (tab: NavTab) => tab.pageName)
       }
+      .padding({ left: 8, right: 8, top: 10, bottom: 10 })
+      .borderRadius(28)
+      .backgroundColor(this.capsuleBg)
+      .backdropBlur(50)
+      .border({ width: 0.5, color: '#d8a8ff' })
+      .shadow({ radius: 20, color: '#30b388ff', offsetX: 0, offsetY: 4 })
+      .opacity(this.capsuleVisible ? 1 : 0)
+      .scale({ x: this.capsuleVisible ? 1 : 0.88, y: this.capsuleVisible ? 1 : 0.88 })
+      .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })
     }
+    .width(this.capsuleWidth)
+    .height(this.capsuleHeight)
+    .hitTestBehavior(this.capsuleVisible ? HitTestMode.Default : HitTestMode.None)
     .position({ x: this.capsuleOffsetX, y: this.capsuleOffsetY })
     .priorityGesture(
       PanGesture({ direction: PanDirection.All })
