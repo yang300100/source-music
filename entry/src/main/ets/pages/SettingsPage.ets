@@ -21,6 +21,13 @@ import { MotionTokens } from '../theme/MotionTokens'
 
 const BACKUP_TYPE = 'sourceMusicBackup'
 
+/** 分类项定义 */
+interface SettingCategory {
+  id: string
+  name: string
+  summary: string
+}
+
 @Component
 export struct SettingsContent {
   @StorageLink('themeIsDark') isDark: boolean = true
@@ -30,12 +37,6 @@ export struct SettingsContent {
   @State sources: SourceInstance[] = []
   @State sourceImportStatus: string = ''
   @State sourceExpanded: boolean = false
-  @State musicImportExpanded: boolean = false
-  @State appearanceExpanded: boolean = false
-  @State audioExpanded: boolean = false
-  @State playExpanded: boolean = false
-  @State lyricExpanded: boolean = false
-  @State dataExpanded: boolean = false
   @State extendedSearchEnabled: boolean = false
   @State sleepRemainText: string = '关闭'
   @State saveProgressEnabled: boolean = false
@@ -50,6 +51,8 @@ export struct SettingsContent {
   @State cropUri: string = ''
   @StorageLink('lyricShowTranslation') lyricShowTranslation: boolean = true
   @StorageLink('lyricFontSize') lyricFontSize: number = 14
+  /** 当前选中的分类 id（空 = 未展开，仅显示分类列表） */
+  @State selectedCategory: string = ''
   private sourceManager: SourceManager = SourceManager.getInstance()
   private player: PlayerEngine = PlayerEngine.getInstance()
   private cropDialogController: CustomDialogController = new CustomDialogController({
@@ -89,13 +92,41 @@ export struct SettingsContent {
     customStyle: true
   })
   private eqDialogController: CustomDialogController | null = null
-  /** 应用统一操作弹窗，成员引用可避免弹窗控制器被提前回收 */
   private actionDialogController: CustomDialogController | null = null
-  /** 最近一次弹窗锚点，异步错误提示也沿用触发操作的位置 */
   private dialogPosition: DialogPosition = new DialogPosition()
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
+  private get accentColor(): ResourceColor { return ThemeColors.accentColor() }
+  private get sidebarBg(): ResourceColor { return ThemeColors.sidebarBg(this.isDark) }
+  private get borderFaint(): ResourceColor { return ThemeColors.borderFaint(this.isDark) }
+  private get cardBg(): ResourceColor { return ThemeColors.cardBg(this.isDark) }
+
+  private categories: SettingCategory[] = [
+    { id: 'musicImport', name: '音乐导入', summary: '' },
+    { id: 'source', name: '音源管理', summary: '' },
+    { id: 'appearance', name: '外观', summary: '' },
+    { id: 'audio', name: '音质', summary: '' },
+    { id: 'play', name: '播放', summary: '' },
+    { id: 'lyric', name: '歌词', summary: '' },
+    { id: 'data', name: '数据', summary: '' },
+    { id: 'about', name: '关于', summary: '源音乐 v0.1.0' }
+  ]
+
+  // 更新分类摘要
+  private getCategorySummary(id: string): string {
+    switch (id) {
+      case 'musicImport': return `${this.localSongCount} 首`
+      case 'source': return `${this.sources.length} 个`
+      case 'appearance': return this.themeMode === 'dark' ? '深色' : '浅色'
+      case 'audio': return this.eqEnabled ? this.eqPresetText : this.defaultQualityText
+      case 'play': return this.sleepRemainText !== '关闭' ? `定时${this.sleepRemainText}` : ''
+      case 'lyric': return `${this.lyricFontSize}`
+      case 'data': return this.cacheSizeText
+      case 'about': return '源音乐 v0.1.0'
+      default: return ''
+    }
+  }
 
   aboutToAppear(): void {
     this.localSongCount = this.sourceManager.getLocalSongs().length
@@ -134,306 +165,254 @@ export struct SettingsContent {
   }
 
   private applyQualityToPlayer(quality: string): void {
-    if (quality === '128k') {
-      this.player.defaultQuality = MusicQuality.LOW
-    } else if (quality === 'flac') {
-      this.player.defaultQuality = MusicQuality.LOSSLESS
-    } else {
-      this.player.defaultQuality = MusicQuality.HIGH
-    }
+    if (quality === '128k') { this.player.defaultQuality = MusicQuality.LOW }
+    else if (quality === 'flac') { this.player.defaultQuality = MusicQuality.LOSSLESS }
+    else { this.player.defaultQuality = MusicQuality.HIGH }
   }
 
   private refreshCacheSize(): void {
     this.sourceManager.getCacheSize().then((size: number) => {
-      if (size <= 0) {
-        this.cacheSizeText = '0 KB'
-      } else if (size < 1024 * 1024) {
-        this.cacheSizeText = `${(size / 1024).toFixed(0)} KB`
-      } else {
-        this.cacheSizeText = `${(size / 1024 / 1024).toFixed(1)} MB`
-      }
+      if (size <= 0) { this.cacheSizeText = '0 KB' }
+      else if (size < 1024 * 1024) { this.cacheSizeText = `${(size / 1024).toFixed(0)} KB` }
+      else { this.cacheSizeText = `${(size / 1024 / 1024).toFixed(1)} MB` }
     }).catch(() => { this.cacheSizeText = '0 KB' })
   }
 
-  private get accentColor(): ResourceColor { return ThemeColors.accentColor() }
-  private get sectionBg(): ResourceColor { return this.isDark ? '#15ffffff' : '#08000000' }
+  build() {
+    Stack({ alignContent: Alignment.Start }) {
+      // ===== 右侧详情区 =====
+      if (this.selectedCategory) {
+        Column() {
+          Text(this.getCategoryName(this.selectedCategory))
+            .fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
+            .padding({ left: 8, top: 16, bottom: 12 })
+
+          Scroll() {
+            Column() {
+              this.CategoryContent(this.selectedCategory)
+            }
+            .width('100%')
+          }
+          .width('100%').layoutWeight(1)
+          .scrollBar(BarState.Auto)
+        }
+        .width('100%').height('100%')
+        .padding({ left: 12, right: 12 })
+        .padding({ left: 160 })
+        .transition(TransitionEffect.OPACITY.animation({ duration: 350, curve: Curve.FastOutSlowIn })
+          .combine(TransitionEffect.translate({ x: -16, y: 0 }).animation({ duration: 350, curve: Curve.FastOutSlowIn })))
+      }
+
+      // ===== 左侧分类栏 =====
+      Column() {
+        Text('设置')
+          .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
+          .padding({ left: 12, right: 12, top: 16, bottom: 10 })
+
+        List({ space: 2 }) {
+          ForEach(this.categories, (cat: SettingCategory) => {
+            ListItem() {
+              this.CategoryRow(cat)
+            }
+          })
+        }
+        .width('100%').layoutWeight(1)
+        .scrollBar(BarState.Off)
+      }
+      .width(160).height('100%')
+      .backgroundColor(this.sidebarBg)
+      .backdropBlur(20)
+      .border({ width: { right: this.selectedCategory ? 0.5 : 0 }, color: this.borderFaint })
+    }
+    .width('100%').height('100%').clip(true)
+  }
 
   @Builder
-  SectionHeader(title: string, summary: string, expanded: boolean, onToggle: () => void) {
+  CategoryRow(cat: SettingCategory) {
     Row() {
-      Text(title)
-        .fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.primaryText)
-      Blank()
-      if (summary) {
-        Text(summary)
-          .fontSize(11).fontColor(this.secondaryText)
+      Column({ space: 2 }) {
+        Text(cat.name)
+          .fontSize(13)
+          .fontColor(this.selectedCategory === cat.id ? this.accentColor : this.primaryText)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ right: 6 })
+        if (this.getCategorySummary(cat.id)) {
+          Text(this.getCategorySummary(cat.id))
+            .fontSize(10).fontColor(this.secondaryText)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
       }
-      Text(expanded ? '▾' : '▸')
-        .fontSize(12).fontColor(this.accentColor)
-        .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
+      .layoutWeight(1)
     }
     .width('100%')
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .backgroundColor(this.sectionBg)
-    .borderRadius(10)
-    .margin({ top: 6, bottom: expanded ? 4 : 6 })
-    .onClick(() => { onToggle() })
+    .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+    .borderRadius(8)
+    .backgroundColor(this.selectedCategory === cat.id ? (this.isDark ? '#15b388ff' : '#10b388ff') : Color.Transparent)
+    .scale({ x: this.selectedCategory === cat.id ? 1.02 : 1, y: this.selectedCategory === cat.id ? 1.02 : 1 })
+    .animation({ duration: MotionTokens.NORMAL, curve: Curve.FastOutSlowIn })
+    .onClick(() => { this.selectedCategory = (this.selectedCategory === cat.id) ? '' : cat.id })
   }
 
-  build() {
-    Scroll() {
-      Column() {
-        Text('设置').fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
-          .padding({ left: 16, top: 16, bottom: 12 })
+  private getCategoryName(id: string): string {
+    const found = this.categories.find((c: SettingCategory) => c.id === id)
+    return found ? found.name : ''
+  }
 
-        List({ space: 0 }) {
-          // ====== 音乐导入 ======
-          ListItem() {
-            this.SectionHeader('音乐导入', `${this.localSongCount} 首`, this.musicImportExpanded, () => {
-              this.musicImportExpanded = !this.musicImportExpanded
+  /** 根据分类 id 渲染设置列表 */
+  @Builder
+  CategoryContent(id: string) {
+    if (id === 'musicImport') {
+      Column({ space: 4 }) {
+        SettingsRow({
+          title: '导入本地音乐',
+          value: '选择音频文件',
+          showArrow: true,
+          onRowClick: (event: ClickEvent) => { void event; this.importLocalMusic() }
+        })
+        SettingsRow({
+          title: '扫描文件夹导入',
+          subtitle: '选择文件夹，自动解析封面/歌手等信息',
+          showArrow: true,
+          onRowClick: (event: ClickEvent) => { void event; this.importLocalFolder() }
+        })
+      }.width('100%')
+    } else if (id === 'source') {
+      Column({ space: 4 }) {
+        SourceManagePanel({
+          sources: this.sources,
+          importStatus: this.sourceImportStatus,
+          onToggleSource: (srcId: string, enabled: boolean) => { this.toggleSource(srcId, enabled) },
+          onRemoveSource: (srcId: string) => {
+            this.sourceManager.removeSource(srcId).then(() => {
+              this.sources = [...this.sourceManager.getManageSources()]
             })
-          }
-          if (this.musicImportExpanded) {
-            ListItem() {
-              Column({ space: 4 }) {
-                SettingsRow({
-                  title: '导入本地音乐',
-                  value: '选择音频文件',
-                  showArrow: true,
-                  onRowClick: (event: ClickEvent) => { void event; this.importLocalMusic() }
-                })
-                SettingsRow({
-                  title: '扫描文件夹导入',
-                  subtitle: '选择文件夹，自动解析封面/歌手等信息',
-                  showArrow: true,
-                  onRowClick: (event: ClickEvent) => { void event; this.importLocalFolder() }
-                })
-              }
-              .width('100%').padding({ left: 8, right: 8, bottom: 8 })
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: -6 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-          }
-
-          // ====== 音源管理 ======
-          ListItem() {
-            this.SectionHeader('音源管理', `${this.sources.length} 个`, this.sourceExpanded, () => {
-              this.sourceExpanded = !this.sourceExpanded
-            })
-          }
-          if (this.sourceExpanded) {
-            ListItem() {
-              Column({ space: 4 }) {
-                SourceManagePanel({
-                  sources: this.sources,
-                  importStatus: this.sourceImportStatus,
-                  onToggleSource: (id: string, enabled: boolean) => { this.toggleSource(id, enabled) },
-                  onRemoveSource: (id: string) => {
-                    this.sourceManager.removeSource(id).then(() => {
-                      this.sources = [...this.sourceManager.getManageSources()]
-                    })
-                  },
-                  showImportDialog: (event: ClickEvent) => { this.showImportSourceDialog(event) }
-                })
-                SettingsRow({
-                  title: '扩展音源搜索',
-                  subtitle: this.extendedSearchEnabled ? '允许声明 search 的源参与搜索' : '标准解析：自定义源只解析播放',
-                  showToggle: true,
-                  isOn: this.extendedSearchEnabled,
-                  onToggle: (checked: boolean) => { this.toggleExtendedSearch(checked) }
-                })
-              }
-              .width('100%').padding({ left: 8, right: 8, bottom: 8 })
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: -6 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-          }
-
-          // ====== 外观 ======
-          ListItem() {
-            this.SectionHeader('外观', this.themeMode === 'dark' ? '深色' : '浅色', this.appearanceExpanded, () => {
-              this.appearanceExpanded = !this.appearanceExpanded
-            })
-          }
-          if (this.appearanceExpanded) {
-            ListItem() {
-              Column({ space: 4 }) {
-                SettingsRow({
-                  title: '自动跟随系统主题',
-                  showToggle: true,
-                  isOn: this.autoThemeEnabled,
-                  onToggle: (checked: boolean) => { this.toggleAutoTheme(checked) }
-                })
-                SettingsRow({
-                  title: '主题',
-                  value: this.themeMode === 'dark' ? '深色' : '浅色',
-                  onRowClick: (event: ClickEvent) => { this.showThemeDialog(event) }
-                })
-                SettingsRow({
-                  title: '自定义背景',
-                  subtitle: this.customBgEnabled ? '已启用（点击更换）' : '从相册选择图片作为背景',
-                  value: this.customBgEnabled ? '更换' : '',
-                  onRowClick: (event: ClickEvent) => { void event; this.importCustomBg() }
-                })
-                if (this.customBgEnabled) {
-                  SettingsRow({
-                    title: '恢复默认背景',
-                    onRowClick: (event: ClickEvent) => { void event; this.resetCustomBg() }
-                  })
-                }
-              }
-              .width('100%').padding({ left: 8, right: 8, bottom: 8 })
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: -6 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-          }
-
-          // ====== 音质 ======
-          ListItem() {
-            this.SectionHeader('音质', this.eqEnabled ? this.eqPresetText : this.defaultQualityText, this.audioExpanded,
-            () => { this.audioExpanded = !this.audioExpanded })
-          }
-          if (this.audioExpanded) {
-            ListItem() {
-              Column({ space: 4 }) {
-                SettingsRow({
-                  title: '默认音质',
-                  value: this.defaultQualityText,
-                  onRowClick: (event: ClickEvent) => { this.showQualityDialog(event) }
-                })
-                SettingsRow({
-                  title: '十段均衡器',
-                  subtitle: this.eqSupported ? '31Hz—16kHz，支持预设与自定义调节' : '当前设备系统版本不支持',
-                  value: this.eqSupported ? (this.eqEnabled ? this.eqPresetText : '关闭') : '不支持',
-                  showArrow: this.eqSupported,
-                  onRowClick: (event: ClickEvent) => { this.showEqDialog(event) }
-                })
-              }
-              .width('100%').padding({ left: 8, right: 8, bottom: 8 })
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: -6 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-          }
-
-          // ====== 播放 ======
-          ListItem() {
-            this.SectionHeader('播放', this.sleepRemainText !== '关闭' ? `定时${this.sleepRemainText}` : '',
-              this.playExpanded, () => { this.playExpanded = !this.playExpanded })
-          }
-          if (this.playExpanded) {
-            ListItem() {
-              Column({ space: 4 }) {
-                SettingsRow({
-                  title: '定时关闭',
-                  value: this.sleepRemainText,
-                  onRowClick: (event: ClickEvent) => { this.showSleepTimerDialog(event) }
-                })
-                SettingsRow({
-                  title: '保存播放进度',
-                  subtitle: '下次播放时从断点继续',
-                  showToggle: true,
-                  isOn: this.saveProgressEnabled,
-                  onToggle: (checked: boolean) => { this.toggleSaveProgress(checked) }
-                })
-                SettingsRow({
-                  title: '自动清理已播列表',
-                  subtitle: '播放完成自动移除该曲',
-                  showToggle: true,
-                  isOn: this.autoCleanPlayedEnabled,
-                  onToggle: (checked: boolean) => { this.toggleAutoCleanPlayed(checked) }
-                })
-                SettingsRow({
-                  title: '启动时自动播放上次歌曲',
-                  showToggle: true,
-                  isOn: this.autoPlayEnabled,
-                  onToggle: (checked: boolean) => { this.toggleAutoPlay(checked) }
-                })
-              }
-              .width('100%').padding({ left: 8, right: 8, bottom: 8 })
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: -6 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-          }
-
-          // ====== 歌词 ======
-          ListItem() {
-            this.SectionHeader('歌词', `${this.lyricFontSize}`, this.lyricExpanded, () => {
-              this.lyricExpanded = !this.lyricExpanded
-            })
-          }
-          if (this.lyricExpanded) {
-            ListItem() {
-              Column({ space: 4 }) {
-                SettingsRow({
-                  title: '歌词翻译',
-                  showToggle: true,
-                  isOn: this.lyricShowTranslation,
-                  onToggle: (checked: boolean) => { this.toggleLyricTranslation(checked) }
-                })
-                SettingsRow({
-                  title: '歌词字号',
-                  value: `${this.lyricFontSize}`,
-                  onRowClick: (event: ClickEvent) => { this.showLyricFontDialog(event) }
-                })
-              }
-              .width('100%').padding({ left: 8, right: 8, bottom: 8 })
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: -6 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-          }
-
-          // ====== 数据 ======
-          ListItem() {
-            this.SectionHeader('数据', this.cacheSizeText, this.dataExpanded, () => {
-              this.dataExpanded = !this.dataExpanded
-            })
-          }
-          if (this.dataExpanded) {
-            ListItem() {
-              Column({ space: 4 }) {
-                SettingsRow({
-                  title: '备份与恢复',
-                  showArrow: true,
-                  onRowClick: (event: ClickEvent) => { this.showBackupDialog(event) }
-                })
-                SettingsRow({
-                  title: '清除缓存',
-                  value: this.cacheSizeText,
-                  onRowClick: (event: ClickEvent) => { this.clearCaches(event) }
-                })
-              }
-              .width('100%').padding({ left: 8, right: 8, bottom: 8 })
-              .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.PAGE, curve: Curve.EaseOut })
-                .combine(TransitionEffect.translate({ x: 0, y: -6 })
-                  .animation({ duration: MotionTokens.PAGE, curve: Curve.FastOutSlowIn })))
-            }
-          }
-
-          // ====== 关于（始终可见） ======
-          ListItem() {
-            SettingsRow({ title: '关于', value: '源音乐 v0.1.0' })
-              .margin({ top: 8 })
-          }
-
-          ListItem() { Row() {}.height(40) }
+          },
+          showImportDialog: (event: ClickEvent) => { this.showImportSourceDialog(event) }
+        })
+        SettingsRow({
+          title: '扩展音源搜索',
+          subtitle: this.extendedSearchEnabled ? '允许声明 search 的源参与搜索' : '标准解析：自定义源只解析播放',
+          showToggle: true,
+          isOn: this.extendedSearchEnabled,
+          onToggle: (checked: boolean) => { this.toggleExtendedSearch(checked) }
+        })
+      }.width('100%')
+    } else if (id === 'appearance') {
+      Column({ space: 4 }) {
+        SettingsRow({
+          title: '自动跟随系统主题',
+          showToggle: true,
+          isOn: this.autoThemeEnabled,
+          onToggle: (checked: boolean) => { this.toggleAutoTheme(checked) }
+        })
+        SettingsRow({
+          title: '主题',
+          value: this.themeMode === 'dark' ? '深色' : '浅色',
+          onRowClick: (event: ClickEvent) => { this.showThemeDialog(event) }
+        })
+        SettingsRow({
+          title: '自定义背景',
+          subtitle: this.customBgEnabled ? '已启用（点击更换）' : '从相册选择图片作为背景',
+          value: this.customBgEnabled ? '更换' : '',
+          onRowClick: (event: ClickEvent) => { void event; this.importCustomBg() }
+        })
+        if (this.customBgEnabled) {
+          SettingsRow({
+            title: '恢复默认背景',
+            onRowClick: (event: ClickEvent) => { void event; this.resetCustomBg() }
+          })
         }
-        .width('100%').padding({ left: 12, right: 12 })
+      }.width('100%')
+    } else if (id === 'audio') {
+      Column({ space: 4 }) {
+        SettingsRow({
+          title: '默认音质',
+          value: this.defaultQualityText,
+          onRowClick: (event: ClickEvent) => { this.showQualityDialog(event) }
+        })
+        SettingsRow({
+          title: '十段均衡器',
+          subtitle: this.eqSupported ? '31Hz—16kHz，支持预设与自定义调节' : '当前设备系统版本不支持',
+          value: this.eqSupported ? (this.eqEnabled ? this.eqPresetText : '关闭') : '不支持',
+          showArrow: this.eqSupported,
+          onRowClick: (event: ClickEvent) => { this.showEqDialog(event) }
+        })
+      }.width('100%')
+    } else if (id === 'play') {
+      Column({ space: 4 }) {
+        SettingsRow({
+          title: '定时关闭',
+          value: this.sleepRemainText,
+          onRowClick: (event: ClickEvent) => { this.showSleepTimerDialog(event) }
+        })
+        SettingsRow({
+          title: '保存播放进度',
+          subtitle: '下次播放时从断点继续',
+          showToggle: true,
+          isOn: this.saveProgressEnabled,
+          onToggle: (checked: boolean) => { this.toggleSaveProgress(checked) }
+        })
+        SettingsRow({
+          title: '自动清理已播列表',
+          subtitle: '播放完成自动移除该曲',
+          showToggle: true,
+          isOn: this.autoCleanPlayedEnabled,
+          onToggle: (checked: boolean) => { this.toggleAutoCleanPlayed(checked) }
+        })
+        SettingsRow({
+          title: '启动时自动播放上次歌曲',
+          showToggle: true,
+          isOn: this.autoPlayEnabled,
+          onToggle: (checked: boolean) => { this.toggleAutoPlay(checked) }
+        })
+      }.width('100%')
+    } else if (id === 'lyric') {
+      Column({ space: 4 }) {
+        SettingsRow({
+          title: '歌词翻译',
+          showToggle: true,
+          isOn: this.lyricShowTranslation,
+          onToggle: (checked: boolean) => { this.toggleLyricTranslation(checked) }
+        })
+        SettingsRow({
+          title: '歌词字号',
+          value: `${this.lyricFontSize}`,
+          onRowClick: (event: ClickEvent) => { this.showLyricFontDialog(event) }
+        })
+      }.width('100%')
+    } else if (id === 'data') {
+      Column({ space: 4 }) {
+        SettingsRow({
+          title: '备份与恢复',
+          showArrow: true,
+          onRowClick: (event: ClickEvent) => { this.showBackupDialog(event) }
+        })
+        SettingsRow({
+          title: '清除缓存',
+          value: this.cacheSizeText,
+          onRowClick: (event: ClickEvent) => { this.clearCaches(event) }
+        })
+      }.width('100%')
+    } else if (id === 'about') {
+      Column({ space: 4 }) {
+        Text('源音乐')
+          .fontSize(24).fontWeight(FontWeight.Bold).fontColor(this.primaryText)
+          .margin({ top: 8 })
+        Text('HarmonyOS 原生音乐播放器')
+          .fontSize(14).fontColor(this.secondaryText)
+          .margin({ top: 4 })
+        Text('壳与音源分离架构，兼容 LX Music 社区音源生态')
+          .fontSize(12).fontColor(this.secondaryText)
+          .margin({ top: 8, bottom: 8 })
+        Text('Version 0.2.2')
+          .fontSize(14).fontColor(this.accentColor)
+          .margin({ top: 12 })
       }
-      .width('100%')
+      .width('100%').alignItems(HorizontalAlign.Start)
+      .padding(12)
     }
-    .width('100%').height('100%')
-    .scrollBar(BarState.Auto)
   }
 
-  // ===== 设置项 toggle 提取 =====
+  // ===== toggle 辅助方法 =====
   private toggleExtendedSearch(checked: boolean): void {
     const previous = this.extendedSearchEnabled
     this.extendedSearchEnabled = checked
@@ -475,6 +454,7 @@ export struct SettingsContent {
     StorageUtils.putString('lyric_show_translation', checked ? 'true' : 'false')
   }
 
+  // ===== 弹窗/操作逻辑 =====
   private showImportSourceDialog(event: ClickEvent): void {
     const actions: AppDialogAction[] = [
       { id: 'local', label: '从本地文件导入' },
@@ -482,11 +462,8 @@ export struct SettingsContent {
     ]
     this.showActionDialog('导入音源', '支持社区 .js 音源脚本', actions,
       (actionId: string, actionEvent: ClickEvent) => {
-      if (actionId === 'local') {
-        this.importSourceFromLocal()
-      } else if (actionId === 'online') {
-        this.importSourceFromOnline(actionEvent)
-      }
+      if (actionId === 'local') { this.importSourceFromLocal() }
+      else if (actionId === 'online') { this.importSourceFromOnline(actionEvent) }
     }, event)
   }
 
@@ -506,13 +483,10 @@ export struct SettingsContent {
     } catch (err) {}
   }
 
-  /** 选择文件夹扫描导入（解析封面/歌手/专辑等元数据） */
   private async importLocalFolder(): Promise<void> {
     try {
       const documentPicker = new picker.DocumentViewPicker()
-      const result = await documentPicker.select({
-        selectMode: picker.DocumentSelectMode.FOLDER
-      })
+      const result = await documentPicker.select({ selectMode: picker.DocumentSelectMode.FOLDER })
       if (result && result.length > 0) {
         this.showToast('正在扫描文件夹...')
         const count = await this.sourceManager.scanLocalFolder(result[0])
@@ -525,12 +499,8 @@ export struct SettingsContent {
   private async importSourceFromLocal(): Promise<void> {
     try {
       const documentPicker = new picker.DocumentViewPicker()
-      // 一次只能导入一个音源脚本
       const result = await documentPicker.select({ fileSuffixFilters: ['.js'], maxSelectNumber: 1 })
-      if (!result || result.length === 0) {
-        this.showSourceImportFeedback('已取消导入音源')
-        return
-      }
+      if (!result || result.length === 0) { this.showSourceImportFeedback('已取消导入音源'); return }
       this.showSourceImportFeedback('正在导入音源...')
       const ret = await this.sourceManager.importSource(SourceImportMethod.LOCAL_FILE, result[0])
       const message = ret.success ? `导入成功：${ret.source?.info.name ?? '未知音源'}（请手动启用）` :
@@ -538,19 +508,14 @@ export struct SettingsContent {
       this.showSourceImportFeedback(message)
     } catch (err) {
       const error = err as BusinessError
-      const detail = error.message || JSON.stringify(err) || '未知异常'
-      LogUtils.error(`[导入] 本地音源导入异常: code=${error.code} message=${detail}`)
-      this.showSourceImportFeedback(`导入失败：${detail}`)
+      this.showSourceImportFeedback(`导入失败：${error.message || JSON.stringify(err)}`)
     } finally {
-      // SourceManager 返回内部数组；复制一份才能稳定触发 ArkUI 状态刷新。
       this.sources = [...this.sourceManager.getManageSources()]
     }
   }
 
-  /** 在线音源导入对话框（成员保持引用，避免局部 controller 被 GC） */
   private onlineSourceDialog: CustomDialogController | null = null
 
-  /** 从在线链接导入音源：弹出 URL 输入对话框 */
   private importSourceFromOnline(event: ClickEvent): void {
     this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 300, 220)
     this.onlineSourceDialog = new CustomDialogController({
@@ -561,10 +526,7 @@ export struct SettingsContent {
         fallbackValue: '',
         onConfirm: (url: string) => {
           const trimmed = url.trim()
-          if (!trimmed.startsWith('http')) {
-            this.showToast('请输入有效的 http(s) 链接')
-            return
-          }
+          if (!trimmed.startsWith('http')) { this.showToast('请输入有效的 http(s) 链接'); return }
           this.importSourceFromUrl(trimmed)
         }
       }),
@@ -576,7 +538,6 @@ export struct SettingsContent {
     this.onlineSourceDialog.open()
   }
 
-  /** 在线导入与本地导入使用同一套可见反馈，避免 Promise 异常静默。 */
   private async importSourceFromUrl(url: string): Promise<void> {
     this.showSourceImportFeedback('正在导入音源...')
     try {
@@ -586,38 +547,23 @@ export struct SettingsContent {
       this.showSourceImportFeedback(message)
     } catch (err) {
       const error = err as BusinessError
-      const detail = error.message || JSON.stringify(err) || '未知异常'
-      LogUtils.error(`[导入] 在线音源导入异常: code=${error.code} message=${detail}`)
-      this.showSourceImportFeedback(`导入失败：${detail}`)
-    } finally {
-      this.sources = [...this.sourceManager.getManageSources()]
-    }
+      this.showSourceImportFeedback(`导入失败：${error.message || JSON.stringify(err)}`)
+    } finally { this.sources = [...this.sourceManager.getManageSources()] }
   }
 
-  /** Toast 失败时仍保留面板状态，确保导入结果一定可见。 */
   private showSourceImportFeedback(message: string): void {
     this.sourceImportStatus = message
-    try {
-      this.showToast(message)
-    } catch (err) {
-      LogUtils.warn(`[导入] Toast 显示失败，已保留面板状态: ${JSON.stringify(err)}`)
-    }
+    try { this.showToast(message) } catch (err) {}
   }
 
-  /** 用户明确打开开关时才初始化脚本；失败后保留已导入脚本并恢复关闭状态。 */
   private async toggleSource(id: string, enabled: boolean): Promise<void> {
     this.showSourceImportFeedback(enabled ? '正在初始化音源...' : '正在禁用音源...')
     try {
       const result = await this.sourceManager.toggleSource(id, enabled)
-      const prefix = result.success ? (enabled ? '启用成功' : '禁用成功') : '启用失败'
-      this.showSourceImportFeedback(`${prefix}：${result.message}`)
+      this.showSourceImportFeedback(`${result.success ? (enabled ? '启用成功' : '禁用成功') : '启用失败'}：${result.message}`)
     } catch (err) {
-      const detail = JSON.stringify(err) || '未知异常'
-      LogUtils.error(`[音源] 切换状态异常: ${detail}`)
-      this.showSourceImportFeedback(`启用失败：${detail}`)
-    } finally {
-      this.sources = [...this.sourceManager.getManageSources()]
-    }
+      this.showSourceImportFeedback(`操作失败：${JSON.stringify(err)}`)
+    } finally { this.sources = [...this.sourceManager.getManageSources()] }
   }
 
   private showQualityDialog(event: ClickEvent): void {
@@ -627,10 +573,8 @@ export struct SettingsContent {
         currentQuality: this.defaultQualityText,
         onSelect: (quality: string) => { this.applyQuality(quality) }
       }),
-      autoCancel: true,
-      alignment: DialogAlignment.TopStart,
-      offset: { dx: pos.x, dy: pos.y },
-      customStyle: true
+      autoCancel: true, alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y }, customStyle: true
     })
     this.qualityDialogController.open()
   }
@@ -649,10 +593,7 @@ export struct SettingsContent {
   }
 
   private showEqDialog(event: ClickEvent): void {
-    if (!this.eqSupported) {
-      this.showToast('当前设备系统版本不支持十段均衡器')
-      return
-    }
+    if (!this.eqSupported) { this.showToast('当前设备系统版本不支持十段均衡器'); return }
     const pos = DialogPosUtils.fromClickForDialog(event, 540, 430)
     this.eqDialogController = new CustomDialogController({
       builder: EqDialog({
@@ -662,35 +603,24 @@ export struct SettingsContent {
         gains: [...this.player.eqGains],
         onEnabledChange: (enabled: boolean) => {
           this.player.setEqEnabled(enabled).then((success: boolean) => {
-            if (success) {
-              this.eqEnabled = enabled
-              this.showToast(enabled ? '均衡器已开启' : '均衡器已关闭')
-            } else {
-              this.showToast('均衡器开关失败')
-            }
+            if (success) { this.eqEnabled = enabled; this.showToast(enabled ? '均衡器已开启' : '均衡器已关闭') }
+            else { this.showToast('均衡器开关失败') }
           })
         },
         onPresetChange: (preset: string) => {
           this.player.setEqPreset(preset).then((success: boolean) => {
-            if (success) {
-              this.eqPresetText = this.getEqPresetLabel(preset)
-            } else {
-              this.showToast('预设应用失败')
-            }
+            if (success) { this.eqPresetText = this.getEqPresetLabel(preset) }
+            else { this.showToast('预设应用失败') }
           })
         },
         onGainsChange: (gains: number[]) => {
           this.player.setEqGains(gains).then((success: boolean) => {
-            if (success) {
-              this.eqPresetText = '自定义'
-            }
+            if (success) { this.eqPresetText = '自定义' }
           })
         }
       }),
-      autoCancel: true,
-      alignment: DialogAlignment.TopStart,
-      offset: { dx: pos.x, dy: pos.y },
-      customStyle: true
+      autoCancel: true, alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y }, customStyle: true
     })
     this.eqDialogController.open()
   }
@@ -702,23 +632,17 @@ export struct SettingsContent {
   }
 
   private clearCaches(event: ClickEvent): void {
-    const actions: AppDialogAction[] = [
-      { id: 'clear', label: '确认清除', danger: true }
-    ]
-    this.showActionDialog(
-      '清除缓存',
+    const actions: AppDialogAction[] = [{ id: 'clear', label: '确认清除', danger: true }]
+    this.showActionDialog('清除缓存',
       `将清除播放地址、歌词、换源等缓存（约 ${this.cacheSizeText}），不影响歌单与收藏`,
-      actions,
-      (actionId: string, actionEvent: ClickEvent) => {
+      actions, (actionId: string, actionEvent: ClickEvent) => {
         void actionEvent
         if (actionId !== 'clear') return
         this.sourceManager.clearAllCaches().then((ok: boolean) => {
           this.showToast(ok ? '缓存已清除' : '清除失败')
           this.refreshCacheSize()
         })
-      },
-      event
-    )
+      }, event)
   }
 
   private showLyricFontDialog(event: ClickEvent): void {
@@ -728,10 +652,8 @@ export struct SettingsContent {
         currentSize: this.lyricFontSize,
         onSelect: (size: number) => { this.applyLyricFontSize(size) }
       }),
-      autoCancel: true,
-      alignment: DialogAlignment.TopStart,
-      offset: { dx: pos.x, dy: pos.y },
-      customStyle: true
+      autoCancel: true, alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y }, customStyle: true
     })
     this.fontDialogController.open()
   }
@@ -749,25 +671,19 @@ export struct SettingsContent {
         currentText: this.sleepRemainText,
         onSelect: (minutes: number) => { this.applySleepTimer(minutes) }
       }),
-      autoCancel: true,
-      alignment: DialogAlignment.TopStart,
-      offset: { dx: pos.x, dy: pos.y },
-      customStyle: true
+      autoCancel: true, alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y }, customStyle: true
     })
     this.sleepDialogController.open()
   }
 
   private applySleepTimer(minutes: number): void {
     this.player.setSleepTimer(minutes)
-    if (minutes <= 0) {
-      this.sleepRemainText = '关闭'
-    } else {
-      this.sleepRemainText = `${minutes}分钟`
-    }
+    if (minutes <= 0) { this.sleepRemainText = '关闭' }
+    else { this.sleepRemainText = `${minutes}分钟` }
     this.showToast(minutes <= 0 ? '已取消定时关闭' : `定时关闭：${minutes} 分钟后暂停`)
   }
 
-  /** 选择图片 → 打开裁剪界面 */
   private async importCustomBg(): Promise<void> {
     try {
       const photoSelectOptions = new picker.PhotoSelectOptions()
@@ -777,33 +693,24 @@ export struct SettingsContent {
       const result = await photoPicker.select(photoSelectOptions)
       if (!result || result.photoUris.length === 0) return
       this.cropUri = result.photoUris[0]
-      // 打开全屏裁剪对话框
       this.cropDialogController = new CustomDialogController({
         builder: ImageCropper({
-          srcUri: this.cropUri,
-          frameRatio: 16 / 9,
+          srcUri: this.cropUri, frameRatio: 16 / 9,
           onCropDone: (filePath: string) => { this.applyCustomBg(filePath) }
         }),
-        autoCancel: false,
-        alignment: DialogAlignment.Center,
-        customStyle: true
+        autoCancel: false, alignment: DialogAlignment.Center, customStyle: true
       })
       this.cropDialogController.open()
-    } catch (err) {
-      LogUtils.warn(`[背景] 选择图片失败: ${JSON.stringify(err)}`)
-    }
+    } catch (err) { LogUtils.warn(`[背景] 选择图片失败: ${JSON.stringify(err)}`) }
   }
 
-  /** 应用裁剪后的自定义背景 */
   private applyCustomBg(filePath: string): void {
     StorageUtils.putString('custom_bg_path', filePath)
     this.customBgEnabled = true
-    // 通知 AppBackground 刷新（通过 AppStorage 广播）
     AppStorage.setOrCreate('customBgUpdated', Date.now())
     this.showToast('已应用自定义背景')
   }
 
-  /** 恢复默认背景 */
   private resetCustomBg(): void {
     StorageUtils.putString('custom_bg_path', '')
     this.customBgEnabled = false
@@ -819,22 +726,19 @@ export struct SettingsContent {
     this.showActionDialog('选择主题', '选择后将关闭自动跟随系统主题', actions,
       (actionId: string, actionEvent: ClickEvent) => {
       void actionEvent
+      this.autoThemeEnabled = false
+      AppStorage.setOrCreate('autoTheme', false)
+      StorageUtils.putString('auto_theme', 'false')
       if (actionId === 'dark') {
-          this.autoThemeEnabled = false
-          AppStorage.setOrCreate('autoTheme', false)
-          StorageUtils.putString('auto_theme', 'false')
-          this.themeMode = 'dark'
-          AppStorage.setOrCreate('themeIsDark', true)
-          StorageUtils.putString('theme_mode', 'dark')
-          this.applyTheme('dark')
+        this.themeMode = 'dark'
+        AppStorage.setOrCreate('themeIsDark', true)
+        StorageUtils.putString('theme_mode', 'dark')
+        this.applyTheme('dark')
       } else if (actionId === 'light') {
-          this.autoThemeEnabled = false
-          AppStorage.setOrCreate('autoTheme', false)
-          StorageUtils.putString('auto_theme', 'false')
-          this.themeMode = 'light'
-          AppStorage.setOrCreate('themeIsDark', false)
-          StorageUtils.putString('theme_mode', 'light')
-          this.applyTheme('light')
+        this.themeMode = 'light'
+        AppStorage.setOrCreate('themeIsDark', false)
+        StorageUtils.putString('theme_mode', 'light')
+        this.applyTheme('light')
       }
     }, event)
   }
@@ -847,12 +751,10 @@ export struct SettingsContent {
     appContext.getApplicationContext().setColorMode(colorMode)
   }
 
-  /** 自动主题开关：开启时跟随系统（NOT_SET），关闭时用当前主题固定 */
   private applyAutoTheme(enabled: boolean): void {
     const appContext = getContext(this)
     if (enabled) {
       appContext.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET)
-      // 立即按系统当前模式更新（systemColorMode 由 EntryAbility 启动时写入）
       const sysMode = AppStorage.get<number>('systemColorMode') ?? ConfigurationConstant.ColorMode.COLOR_MODE_DARK
       const isDark = sysMode !== ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT
       this.themeMode = isDark ? 'dark' : 'light'
@@ -861,8 +763,7 @@ export struct SettingsContent {
       appContext.getApplicationContext().setColorMode(
         this.themeMode === 'light'
           ? ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT
-          : ConfigurationConstant.ColorMode.COLOR_MODE_DARK
-      )
+          : ConfigurationConstant.ColorMode.COLOR_MODE_DARK)
     }
   }
 
@@ -871,10 +772,8 @@ export struct SettingsContent {
       { id: 'export', label: '导出备份' },
       { id: 'import', label: '恢复备份' }
     ]
-    // 在 List 内部的点击事件可能缺少屏幕坐标，就地计算并传入
     const estimatedHeight = 100 + actions.length * 52
     this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 320, estimatedHeight)
-    // 坐标降级：如果计算出的位置在屏幕左上角（clickEvent 坐标缺失），使用屏幕中部
     if (this.dialogPosition.x < 10 && this.dialogPosition.y < 30) {
       this.dialogPosition.x = Math.max(8, DialogPosUtils.screenWidth() / 2 - 160)
       this.dialogPosition.y = DialogPosUtils.screenHeight() / 3
@@ -886,17 +785,12 @@ export struct SettingsContent {
         actions: actions,
         onAction: (actionId: string, actionEvent: ClickEvent) => {
           void actionEvent
-          if (actionId === 'export') {
-            this.exportBackup()
-          } else if (actionId === 'import') {
-            this.importBackup()
-          }
+          if (actionId === 'export') { this.exportBackup() }
+          else if (actionId === 'import') { this.importBackup() }
         }
       }),
-      autoCancel: true,
-      alignment: DialogAlignment.TopStart,
-      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
-      customStyle: true
+      autoCancel: true, alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y }, customStyle: true
     })
     this.actionDialogController.open()
   }
@@ -920,40 +814,30 @@ export struct SettingsContent {
       const saveUri = saveResult && saveResult.length > 0 ? saveResult[0] : ''
       if (saveUri) {
         const file = fileIo.openSync(saveUri, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE)
-        // 应用备份为纯 JSON 文本。
         const encoder = new util.TextEncoder()
         const buffer = encoder.encodeInto(JSON.stringify(backupData))
         fileIo.writeSync(file.fd, buffer)
         fileIo.closeSync(file)
         this.showToast(`已导出 ${plList.length} 个歌单`)
       }
-    } catch (err) {
-      this.showInfoDialog('备份失败', JSON.stringify(err))
-    }
+    } catch (err) { this.showInfoDialog('备份失败', JSON.stringify(err)) }
   }
 
   private async importBackup(): Promise<void> {
     try {
       const documentPicker = new picker.DocumentViewPicker()
-      const result = await documentPicker.select({
-        fileSuffixFilters: ['.json'],
-        maxSelectNumber: 1
-      })
+      const result = await documentPicker.select({ fileSuffixFilters: ['.json'], maxSelectNumber: 1 })
       if (!result || result.length === 0) return
       const file = fileIo.openSync(result[0], fileIo.OpenMode.READ_ONLY)
       const stat = fileIo.statSync(result[0])
       const buf = new ArrayBuffer(stat.size)
       fileIo.readSync(file.fd, buf)
       fileIo.closeSync(file)
-      // 新旧备份均为纯 JSON 文本。
       const decoder = util.TextDecoder.create('utf-8')
       const content = decoder.decodeToString(new Uint8Array(buf))
-      LogUtils.info(`[恢复] 导入内容前200字符: ${content.substring(0, 200)}`)
       const parsed = JSON.parse(content) as Record<string, Object>
-      LogUtils.info(`[恢复] 导入 type=${JSON.stringify(parsed['type'])} 字段=${Object.keys(parsed).join(',')}`)
       if (parsed['type'] !== BACKUP_TYPE) {
-        this.showInfoDialog('格式不支持', '仅支持 JSON 格式的源音乐备份文件')
-        return
+        this.showInfoDialog('格式不支持', '仅支持 JSON 格式的源音乐备份文件'); return
       }
       const plList = parsed['playlists'] as Array<Record<string, Object>>
       if (plList && plList.length > 0) {
@@ -963,12 +847,9 @@ export struct SettingsContent {
           if (created) count++
         }
         this.showToast(`已恢复 ${count} 个歌单`)
-      } else {
-        this.showToast('备份中没有歌单数据')
-      }
+      } else { this.showToast('备份中没有歌单数据') }
     } catch (err) {
       const e = err as BusinessError
-      LogUtils.error(`[恢复] 解析失败: code=${e.code} message=${e.message} json=${JSON.stringify(err)}`)
       this.showInfoDialog('恢复失败', `解析失败: ${e.code} ${e.message}`)
     }
   }
@@ -977,39 +858,26 @@ export struct SettingsContent {
     this.getUIContext().getPromptAction().showToast({ message: msg, duration: 1500 })
   }
 
-  /** 打开应用统一的自定义操作卡片 */
   private showActionDialog(
-    title: string,
-    message: string,
-    actions: AppDialogAction[],
-    onAction: (actionId: string, event: ClickEvent) => void,
-    event?: ClickEvent
+    title: string, message: string, actions: AppDialogAction[],
+    onAction: (actionId: string, event: ClickEvent) => void, event?: ClickEvent
   ): void {
     if (event) {
       const estimatedHeight = 100 + actions.length * 52
       this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 320, estimatedHeight)
     }
     this.actionDialogController = new CustomDialogController({
-      builder: AppActionDialog({
-        title: title,
-        message: message,
-        actions: actions,
-        onAction: onAction
-      }),
-      autoCancel: true,
-      alignment: DialogAlignment.TopStart,
-      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
-      customStyle: true
+      builder: AppActionDialog({ title: title, message: message, actions: actions, onAction: onAction }),
+      autoCancel: true, alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y }, customStyle: true
     })
     this.actionDialogController.open()
   }
 
-  /** 信息提示也使用同一套自定义弹窗，不再回退到原生 AlertDialog */
   private showInfoDialog(title: string, message: string): void {
     const actions: AppDialogAction[] = [{ id: 'ok', label: '知道了' }]
     this.showActionDialog(title, message, actions, (actionId: string, event: ClickEvent) => {
-      void actionId
-      void event
+      void actionId; void event
     })
   }
 }
