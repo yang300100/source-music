@@ -271,7 +271,12 @@ export class PlayerEngine {
         case 'error':
           this.status = PlayerStatus.ERROR
           LogUtils.error('AVPlayer 播放出错')
-          this.handleAvError()
+          // 用户手动暂停或空闲时出现的 stateChange error 不触发自动重试播放
+          if (prevStatus === PlayerStatus.PAUSED || prevStatus === PlayerStatus.IDLE) {
+            LogUtils.info(`[AVPlayer] stateChange error 但用户已暂停/空闲(prevStatus=${prevStatus})，跳过自动重试`)
+          } else {
+            this.handleAvError()
+          }
           break
       }
       LogUtils.info(`[AVPlayer] stateChange后: status=${this.status}`)
@@ -298,8 +303,14 @@ export class PlayerEngine {
 
     this.avPlayer.on('error', (err: Error) => {
       LogUtils.error('AVPlayer 错误', JSON.stringify(err))
+      const prevStatus = this.status
       this.status = PlayerStatus.ERROR
       this.stopLoadingTimer()
+      // 用户手动暂停或空闲时出错：不需要自动重试播放，静默忽略即可
+      if (prevStatus === PlayerStatus.PAUSED || prevStatus === PlayerStatus.IDLE) {
+        LogUtils.info(`[播放] AVPlayer 错误但用户已暂停/空闲(status=${prevStatus})，跳过自动重试`)
+        return
+      }
       // 播放器解码失败：刷新URL重试（最多2次），仍失败则5秒后跳下一首（参考社区音源）
       if (this.currentSong && this.retryNum < 2 && this.errorSkipTimer === null) {
         this.retryNum++
@@ -733,13 +744,19 @@ export class PlayerEngine {
     this.status = PlayerStatus.BUFFERING
     await this.avPlayer.prepare()
     if (generation !== this.playGeneration) return false
-    await this.avPlayer.play()
-    if (generation !== this.playGeneration) return false
-    if (this.pendingStartPositionMs > 0) {
-      await this.avPlayer.seek(this.pendingStartPositionMs)
-      this.currentProgress = this.pendingStartPositionMs
+    // 按需播放：pendingAutoPlay=false 时跳过 play()，消除"先播后停"的音频泄漏窗口
+    const shouldAutoPlay = this.pendingAutoPlay
+    if (shouldAutoPlay) {
+      await this.avPlayer.play()
+      if (generation !== this.playGeneration) return false
+      if (this.pendingStartPositionMs > 0) {
+        await this.avPlayer.seek(this.pendingStartPositionMs)
+        this.currentProgress = this.pendingStartPositionMs
+      }
+    } else {
+      this.status = PlayerStatus.PAUSED
+      LogUtils.info('[播放] pendingAutoPlay=false，跳过 play() 保持在 prepared 状态')
     }
-    if (!this.pendingAutoPlay) await this.avPlayer.pause()
     this.pendingStartPositionMs = 0
     this.pendingAutoPlay = true
     this.stopLoadingTimer()
