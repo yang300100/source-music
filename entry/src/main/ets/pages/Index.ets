@@ -493,6 +493,7 @@ struct Index {
           .animation({ duration: 280, curve: Curve.FastOutSlowIn })))
     } else if (this.activePanel === 'settings') {
       SettingsContent({
+        panelSide: this.panelSide,
         onSelectionChange: (hasSelection: boolean) => {
           this.settingsHasSelection = hasSelection
           this.updatePanelWidth()
