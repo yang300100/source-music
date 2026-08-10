@@ -5,6 +5,7 @@ import { PlaylistNameDialog } from '../components/PlaylistNameDialog'
 import { MusicItemView } from '../components/MusicItemView'
 import { PlaylistSidebar } from '../components/playlist/PlaylistSidebar'
 import { PlaylistHeader } from '../components/playlist/PlaylistHeader'
+import { SongPositionDialog } from '../components/playlist/SongPositionDialog'
 import { AppActionDialog, AppDialogAction } from '../components/common/AppActionDialog'
 import { DialogPosition, DialogPosUtils } from '../utils/DialogPosUtils'
 import { picker, fileIo } from '@kit.CoreFileKit'
@@ -29,6 +30,7 @@ export struct PlaylistListContent {
   /** 重命名对话框（成员保持引用，避免局部 controller 被 GC） */
   private renameDialog: CustomDialogController | null = null
   private actionDialogController: CustomDialogController | null = null
+  private positionDialogController: CustomDialogController | null = null
   private dialogPosition: DialogPosition = new DialogPosition()
 
   aboutToAppear(): void {
@@ -42,18 +44,36 @@ export struct PlaylistListContent {
     // 面板可见期间轮询刷新（收藏/播放等操作后计数自动更新）
     this.refreshTimer = setInterval(() => {
       const latest = this.playlistMgr.getAll()
-      if (latest.length !== this.playlists.length) {
-        this.playlists = latest
-      } else {
+      // 对比 updatedAt 和 name 等元数据变化（之前仅比较数量和歌曲数，漏掉重命名）
+      let changed = latest.length !== this.playlists.length
+      if (!changed) {
         for (let i = 0; i < latest.length; i++) {
-          if (latest[i].songs.length !== this.playlists[i].songs.length) {
-            this.playlists = latest
+          if (latest[i].updatedAt !== this.playlists[i].updatedAt ||
+              latest[i].name !== this.playlists[i].name ||
+              latest[i].songs.length !== this.playlists[i].songs.length) {
+            changed = true
             break
           }
         }
       }
+      if (changed) {
+        this.playlists = latest
+      }
       if (this.selectedPlaylistId) {
-        this.playlist = this.playlistMgr.getById(this.selectedPlaylistId) ?? null
+        const updated = this.playlistMgr.getById(this.selectedPlaylistId)
+        // 用新对象引用触发 @State 变更（原地修改同名属性不会触发 ArkUI 刷新）
+        if (updated) {
+          this.playlist = {
+            id: updated.id,
+            name: updated.name,
+            description: updated.description,
+            songs: updated.songs,
+            createdAt: updated.createdAt,
+            updatedAt: updated.updatedAt
+          }
+        } else {
+          this.playlist = null
+        }
       }
     }, 3000)
   }
@@ -108,7 +128,20 @@ export struct PlaylistListContent {
         onConfirm: (name: string) => {
           PlaylistManager.getInstance().update(pl.id, name).then(() => {
             this.playlists = this.playlistMgr.getAll()
-            this.playlist = this.playlistMgr.getById(pl.id) ?? null
+            const updated = this.playlistMgr.getById(pl.id)
+            // 用新对象引用确保 ArkUI @State 立即刷新（原地修改同名属性不触发）
+            if (updated) {
+              this.playlist = {
+                id: updated.id,
+                name: updated.name,
+                description: updated.description,
+                songs: updated.songs,
+                createdAt: updated.createdAt,
+                updatedAt: updated.updatedAt
+              }
+            } else {
+              this.playlist = null
+            }
           })
         }
       }),
@@ -144,6 +177,31 @@ export struct PlaylistListContent {
     })
   }
 
+  /** 长按歌曲：弹出序号输入对话框，将歌曲移动到目标位置 */
+  private showPositionDialog(song: MusicItem, currentIndex: number, event: ClickEvent): void {
+    const pl = this.playlist
+    if (!pl) return
+    this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 300, 280)
+    this.positionDialogController = new CustomDialogController({
+      builder: SongPositionDialog({
+        songName: song.name,
+        currentPosition: currentIndex + 1,
+        totalSongs: pl.songs.length,
+        onConfirm: (targetIndex: number) => {
+          PlaylistManager.getInstance().moveSong(pl.id, currentIndex, targetIndex).then(() => {
+            this.playlist = PlaylistManager.getInstance().getById(pl.id) ?? null
+            this.playlists = this.playlistMgr.getAll()
+          })
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
+      customStyle: true
+    })
+    this.positionDialogController.open()
+  }
+
   build() {
     if (this.panelSide === 'right') {
       // 右侧面板：未选中时侧栏占满整个面板；选中后侧栏贴右缘固定 160，详情在左展开
@@ -164,9 +222,20 @@ export struct PlaylistListContent {
             List({ space: 4 }) {
               ForEach(this.playlist.songs, (song: MusicItem, index: number) => {
                 ListItem() {
-                  MusicItemView({ song: song, queueSongs: this.playlist!.songs })
+                  Row({ space: 8 }) {
+                    Text(`${index + 1}`)
+                      .fontSize(12).fontColor(this.secondaryText)
+                      .width(24).textAlign(TextAlign.Center)
+                    MusicItemView({ song: song, queueSongs: this.playlist!.songs })
+                      .layoutWeight(1)
+                  }
+                  .width('100%')
                 }
                 .swipeAction({ end: { builder: () => { this.DeleteSongBuilder(index) } } })
+                .gesture(LongPressGesture({ repeat: false }).onAction((event: GestureEvent) => {
+                  this.showPositionDialog(song, index, { x: event.fingerList[0]?.localX ?? 0,
+                    y: event.fingerList[0]?.localY ?? 0 } as ClickEvent)
+                }))
                 .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
                   delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
                   .combine(TransitionEffect.translate({ x: 0, y: 10 })
@@ -222,9 +291,20 @@ export struct PlaylistListContent {
             List({ space: 4 }) {
               ForEach(this.playlist.songs, (song: MusicItem, index: number) => {
                 ListItem() {
-                  MusicItemView({ song: song, queueSongs: this.playlist!.songs })
+                  Row({ space: 8 }) {
+                    Text(`${index + 1}`)
+                      .fontSize(12).fontColor(this.secondaryText)
+                      .width(24).textAlign(TextAlign.Center)
+                    MusicItemView({ song: song, queueSongs: this.playlist!.songs })
+                      .layoutWeight(1)
+                  }
+                  .width('100%')
                 }
                 .swipeAction({ end: { builder: () => { this.DeleteSongBuilder(index) } } })
+                .gesture(LongPressGesture({ repeat: false }).onAction((event: GestureEvent) => {
+                  this.showPositionDialog(song, index, { x: event.fingerList[0]?.localX ?? 0,
+                    y: event.fingerList[0]?.localY ?? 0 } as ClickEvent)
+                }))
                 .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
                   delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
                   .combine(TransitionEffect.translate({ x: 0, y: 10 })

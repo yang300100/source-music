@@ -193,7 +193,7 @@ export struct PortraitPlayer {
           onToggle: () => { this.player.togglePlay() },
           onNext: () => { this.player.next() },
           onModeChange: () => {
-            const modes = [PlayMode.SEQUENCE, PlayMode.LOOP_ONE, PlayMode.LOOP_ALL, PlayMode.SHUFFLE]
+            const modes = [PlayMode.LOOP_ALL, PlayMode.LOOP_ONE, PlayMode.SHUFFLE, PlayMode.SEQUENCE]
             this.player.setPlayMode(modes[(modes.indexOf(this.mode) + 1) % modes.length])
           },
           onToggleFavorite: () => { this.toggleFavorite() },

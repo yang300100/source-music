@@ -10,6 +10,8 @@ export class PlayQueue {
   list: MusicItem[] = []
   currentIndex: number = -1
   mode: PlayMode = PlayMode.SEQUENCE
+  /** 进入随机播放前的原始顺序（退出随机时恢复） */
+  private originalOrder: MusicItem[] = []
 
   /** 一次性替换整个队列并从头播放 */
   replaceList(songs: MusicItem[], startIndex: number = 0): void {
@@ -28,6 +30,10 @@ export class PlayQueue {
    */
   shuffleForPlayback(): void {
     if (this.list.length <= 1) return
+    // 保存原始顺序，用于退出随机模式时恢复
+    if (this.originalOrder.length === 0) {
+      this.originalOrder = [...this.list]
+    }
     const current = this.getCurrentSong()
     const remaining: MusicItem[] = []
     for (let i = 0; i < this.list.length; i++) {
@@ -51,6 +57,20 @@ export class PlayQueue {
     // 换成新数组引用，确保 ArkUI 的播放列表面板能立即观察到顺序变化。
     this.list = [...this.list]
     LogUtils.info(`随机播放顺序已生成: ${this.list.length} 首, 当前索引=${this.currentIndex}`)
+  }
+
+  /** 退出随机模式时恢复原始播放顺序，当前正在播放的歌曲保持不变 */
+  restoreOriginalOrder(): void {
+    if (this.originalOrder.length === 0) return
+    const current = this.getCurrentSong()
+    this.list = [...this.originalOrder]
+    this.originalOrder = []
+    if (current) {
+      const found = this.list.findIndex(
+        (s: MusicItem) => s.songmid === current.songmid && s.source === current.source)
+      this.currentIndex = found >= 0 ? found : 0
+    }
+    LogUtils.info(`已恢复原始播放顺序: ${this.list.length} 首, 当前索引=${this.currentIndex}`)
   }
 
   /** 追加歌曲到队列末尾 */

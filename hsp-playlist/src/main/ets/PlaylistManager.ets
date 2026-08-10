@@ -138,10 +138,25 @@ export class PlaylistManager {
     const existing = new Set(playlist.songs.map(s => `${s.name}_${s.singer}`))
     const newSongs = songs.filter(s => !existing.has(`${s.name}_${s.singer}`))
 
-    playlist.songs.push(...newSongs)
+    playlist.songs.unshift(...newSongs)
     playlist.updatedAt = Date.now()
     await this.save()
-    LogUtils.info(`添加到歌单 ${playlist.name}: ${newSongs.length} 首`)
+    LogUtils.info(`添加到歌单 ${playlist.name}: ${newSongs.length} 首（置顶）`)
+    return true
+  }
+
+  /** 移动歌单中歌曲位置（fromIndex → toIndex），持久化 */
+  async moveSong(playlistId: string, fromIndex: number, toIndex: number): Promise<boolean> {
+    const playlist = this.getById(playlistId)
+    if (!playlist) return false
+    if (fromIndex < 0 || fromIndex >= playlist.songs.length) return false
+    const clamped = Math.max(0, Math.min(toIndex, playlist.songs.length - 1))
+    if (fromIndex === clamped) return true
+    const song = playlist.songs.splice(fromIndex, 1)[0]
+    playlist.songs.splice(clamped, 0, song)
+    playlist.updatedAt = Date.now()
+    await this.save()
+    LogUtils.info(`歌单歌曲排序: ${song.name} → 第 ${clamped + 1} 位`)
     return true
   }
 
