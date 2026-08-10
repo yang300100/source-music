@@ -20,9 +20,6 @@ import { ThemeColors } from '../theme/ThemeColors'
 import { MotionTokens } from '../theme/MotionTokens'
 
 const BACKUP_TYPE = 'sourceMusicBackup'
-// 兼容旧版备份类型与扩展名，字符串拆分可避免旧品牌继续出现在正式代码中。
-const LEGACY_BACKUP_TYPE = String.fromCharCode(108, 120) + 'MusicBackup'
-const LEGACY_PLAYLIST_SUFFIX = '.' + String.fromCharCode(108, 120) + 'mc'
 
 @Component
 export struct SettingsContent {
@@ -784,15 +781,34 @@ export struct SettingsContent {
       { id: 'export', label: '导出备份' },
       { id: 'import', label: '恢复备份' }
     ]
-    this.showActionDialog('备份与恢复', '导出或导入应用数据（歌单、本地音乐列表）', actions,
-      (actionId: string, actionEvent: ClickEvent) => {
-      void actionEvent
-      if (actionId === 'export') {
-        this.exportBackup()
-      } else if (actionId === 'import') {
-        this.importBackup()
-      }
-    }, event)
+    // 在 List 内部的点击事件可能缺少屏幕坐标，就地计算并传入
+    const estimatedHeight = 100 + actions.length * 52
+    this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 320, estimatedHeight)
+    // 坐标降级：如果计算出的位置在屏幕左上角（clickEvent 坐标缺失），使用屏幕中部
+    if (this.dialogPosition.x < 10 && this.dialogPosition.y < 30) {
+      this.dialogPosition.x = Math.max(8, DialogPosUtils.screenWidth() / 2 - 160)
+      this.dialogPosition.y = DialogPosUtils.screenHeight() / 3
+    }
+    this.actionDialogController = new CustomDialogController({
+      builder: AppActionDialog({
+        title: '备份与恢复',
+        message: '导出或导入应用数据（歌单、本地音乐列表）',
+        actions: actions,
+        onAction: (actionId: string, actionEvent: ClickEvent) => {
+          void actionEvent
+          if (actionId === 'export') {
+            this.exportBackup()
+          } else if (actionId === 'import') {
+            this.importBackup()
+          }
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
+      customStyle: true
+    })
+    this.actionDialogController.open()
   }
 
   private async exportBackup(): Promise<void> {
@@ -830,7 +846,7 @@ export struct SettingsContent {
     try {
       const documentPicker = new picker.DocumentViewPicker()
       const result = await documentPicker.select({
-        fileSuffixFilters: [LEGACY_PLAYLIST_SUFFIX, '.json'],
+        fileSuffixFilters: ['.json'],
         maxSelectNumber: 1
       })
       if (!result || result.length === 0) return
@@ -845,19 +861,20 @@ export struct SettingsContent {
       LogUtils.info(`[恢复] 导入内容前200字符: ${content.substring(0, 200)}`)
       const parsed = JSON.parse(content) as Record<string, Object>
       LogUtils.info(`[恢复] 导入 type=${JSON.stringify(parsed['type'])} 字段=${Object.keys(parsed).join(',')}`)
-      if (parsed['type'] === BACKUP_TYPE || parsed['type'] === LEGACY_BACKUP_TYPE) {
-        const plList = parsed['playlists'] as Array<Record<string, Object>>
-        if (plList && plList.length > 0) {
-          let count = 0
-          for (const pl of plList) {
-            const created = await PlaylistManager.getInstance().importArchive(JSON.stringify(pl))
-            if (created) count++
-          }
-          this.showToast(`已恢复 ${count} 个歌单`)
+      if (parsed['type'] !== BACKUP_TYPE) {
+        this.showInfoDialog('格式不支持', '仅支持 JSON 格式的源音乐备份文件')
+        return
+      }
+      const plList = parsed['playlists'] as Array<Record<string, Object>>
+      if (plList && plList.length > 0) {
+        let count = 0
+        for (const pl of plList) {
+          const created = await PlaylistManager.getInstance().importArchive(JSON.stringify(pl))
+          if (created) count++
         }
+        this.showToast(`已恢复 ${count} 个歌单`)
       } else {
-        const created = await PlaylistManager.getInstance().importArchive(content)
-        this.showToast(created ? `已导入歌单: ${created.name}` : '文件格式不支持')
+        this.showToast('备份中没有歌单数据')
       }
     } catch (err) {
       const e = err as BusinessError
