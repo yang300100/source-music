@@ -187,7 +187,7 @@ export struct SettingsContent {
       // 右侧面板：侧栏贴右缘，详情在左展开
       Stack({ alignContent: Alignment.End }) {
         if (this.selectedCategory) {
-          Column() {
+          Flex({ direction: FlexDirection.Column, justifyContent: FlexAlign.Start }) {
             this.DetailTitle()
             Scroll() { this.DetailContent() }
               .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
@@ -207,7 +207,7 @@ export struct SettingsContent {
       // 左侧面板：侧栏贴左缘，详情在右展开
       Stack({ alignContent: Alignment.Start }) {
         if (this.selectedCategory) {
-          Column() {
+          Flex({ direction: FlexDirection.Column, justifyContent: FlexAlign.Start }) {
             this.DetailTitle()
             Scroll() { this.DetailContent() }
               .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
