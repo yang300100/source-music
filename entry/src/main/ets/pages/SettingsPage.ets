@@ -187,10 +187,15 @@ export struct SettingsContent {
       // 右侧面板：侧栏贴右缘，详情在左展开
       Stack({ alignContent: Alignment.End }) {
         if (this.selectedCategory) {
-          Flex({ direction: FlexDirection.Column, justifyContent: FlexAlign.Start }) {
-            this.DetailTitle()
-            Scroll() { this.DetailContent() }
-              .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+          Column() {
+            Scroll() {
+              Column() {
+                this.DetailTitle()
+                this.DetailContent()
+              }
+              .width('100%')
+            }
+            .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
           }
           .width('100%').height('100%')
           .padding({ left: 12, right: 12 })
@@ -207,10 +212,15 @@ export struct SettingsContent {
       // 左侧面板：侧栏贴左缘，详情在右展开
       Stack({ alignContent: Alignment.Start }) {
         if (this.selectedCategory) {
-          Flex({ direction: FlexDirection.Column, justifyContent: FlexAlign.Start }) {
-            this.DetailTitle()
-            Scroll() { this.DetailContent() }
-              .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+          Column() {
+            Scroll() {
+              Column() {
+                this.DetailTitle()
+                this.DetailContent()
+              }
+              .width('100%')
+            }
+            .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
           }
           .width('100%').height('100%')
           .padding({ left: 12, right: 12 })
