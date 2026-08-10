@@ -26,6 +26,8 @@ export struct PlaylistSidebar {
   onDelete: (id: string, event: ClickEvent) => void = (id: string, event: ClickEvent) => {}
   /** 移动歌单位置（携带 id 与方向：-1 上移 / 1 下移） */
   onMove: (id: string, direction: number) => void = (id: string, direction: number) => {}
+  /** 导入本地歌曲到歌单 */
+  onImportLocal: ((id: string, event: ClickEvent) => void) | null = null
   /** 边框位置：true=左侧（右侧面板时），false=右侧（左侧面板时） */
   @Prop borderOnLeft: boolean = false
   /** 是否有详情区展开（展开时显示分隔竖线，未展开时不显示） */
@@ -128,6 +130,8 @@ export struct PlaylistSidebar {
       this.onMove(id, 1)
     } else if (action === 'delete') {
       this.onDelete(id, event)
+    } else if (action === 'importLocal') {
+      if (this.onImportLocal) { this.onImportLocal(id, event) }
     }
   }
 }

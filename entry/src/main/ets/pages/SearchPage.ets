@@ -32,6 +32,15 @@ export struct SearchContent {
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
 
   aboutToAppear(): void {
+    // 检查是否有外部导航带来的搜索关键词（来自歌单/播放控制的长按菜单）
+    const navKeyword = AppStorage.get<string>('searchKeyword')
+    if (navKeyword && navKeyword.length > 0) {
+      this.keyword = navKeyword
+      this.showHistory = false
+      AppStorage.delete('searchKeyword')
+      // 延迟执行搜索，等搜索源加载完成
+      setTimeout(() => { this.doSearch() }, 200)
+    }
     SearchEngine.getHistory().then((h: string[]) => { this.history = h })
     SearchEngine.getHotSearch().then((h: HotSearchItem[]) => { this.hotSearch = h })
     SourceManager.getInstance().getSearchSources().then((sources) => {

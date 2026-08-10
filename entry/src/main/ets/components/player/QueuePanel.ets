@@ -6,7 +6,8 @@ import { MotionTokens } from '../../theme/MotionTokens'
  * 播放列表面板组件（NowPlaying 播放列表栏）
  *
  * 展示播放队列，支持清空、删除单曲、点击切歌。
- * 开启排序模式后每项显示 ↑↓ 按钮，点击移动一位（稳定可靠的排序方式）。
+ * 开启排序模式后每项显示 ↑↓ 按钮，点击移动一位。
+ * 长按弹出歌曲操作菜单。
  */
 @Component
 export struct QueuePanel {
@@ -27,6 +28,8 @@ export struct QueuePanel {
   onPlayAt: (index: number) => void = (index: number) => {}
   /** 移动歌曲（from → to） */
   onMoveItem: (from: number, to: number) => void = (from: number, to: number) => {}
+  /** 长按歌曲回调（传递歌曲和手势事件） */
+  onLongPressSong: ((song: MusicItem, index: number, event: GestureEvent) => void) | null = null
 
   private get primaryText(): ResourceColor { return ThemeColors.primaryText(this.isDark) }
   private get secondaryText(): ResourceColor { return ThemeColors.secondaryText(this.isDark) }
@@ -116,6 +119,11 @@ export struct QueuePanel {
               .onClick(() => {
                 if (!this.sortMode) { this.onPlayAt(index) }
               })
+              .gesture(LongPressGesture({ repeat: false }).onAction((event: GestureEvent) => {
+                if (!this.sortMode && this.onLongPressSong) {
+                  this.onLongPressSong(song, index, event)
+                }
+              }))
             }
             .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
               delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })

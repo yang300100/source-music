@@ -14,7 +14,10 @@ import { WebJsExecutor } from '../executor/WebJsExecutor'
 import { NowPlayingPanel } from '../components/player/NowPlayingPanel'
 import { QueuePanel } from '../components/player/QueuePanel'
 import { DownloadPanel } from '../components/download/DownloadPanel'
+import { SongActionMenu } from '../components/common/SongActionMenu'
+import { DialogPosUtils } from '../utils/DialogPosUtils'
 import { ThemeColors } from '../theme/ThemeColors'
+import { pasteboard } from '@kit.BasicServicesKit'
 
 /**
  * 面板名称：queue=播放列表（默认），search/playlist/settings/downloads 为替换内容
@@ -52,6 +55,7 @@ struct Index {
   private player: PlayerEngine = PlayerEngine.getInstance()
   private syncTimer: number = -1
   private lastQueueFingerprint: string = ''
+  private queueSongActionController: CustomDialogController | null = null
 
   private readonly tabs: NavTab[] = [
     { icon: $r('app.media.ic_search'), label: '搜索', pageName: 'Search' },
@@ -264,7 +268,7 @@ struct Index {
                 this.LeftPanel()
               }
 
-              NowPlayingPanel()
+              NowPlayingPanel({ onNavigateSearch: (keyword: string) => { this.navigateToSearch(keyword) } })
                 .layoutWeight(1)
 
               if (this.panelSide === 'right') {
@@ -453,7 +457,10 @@ struct Index {
           const target = this.player.queue.skipTo(index)
           if (target) { this.player.play(target) }
         },
-        onMoveItem: (from: number, to: number) => { this.player.queue.move(from, to) }
+        onMoveItem: (from: number, to: number) => { this.player.queue.move(from, to) },
+        onLongPressSong: (song: MusicItem, index: number, event: GestureEvent) => {
+          this.handleQueueLongPress(song, index, event)
+        }
       })
       .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.FastOutSlowIn })
         .combine(TransitionEffect.translate({ x: this.panelSide === 'left' ? -16 : 16, y: 0 })
@@ -469,7 +476,8 @@ struct Index {
         onSelectionChange: (hasSelection: boolean) => {
           this.playlistHasSelection = hasSelection
           this.updatePanelWidth()
-        }
+        },
+        onNavigateSearch: (keyword: string) => { this.navigateToSearch(keyword) }
       })
       .transition(TransitionEffect.OPACITY.animation({ duration: 280, curve: Curve.FastOutSlowIn }))
     } else if (this.activePanel === 'downloads') {
@@ -506,6 +514,66 @@ struct Index {
   private switchPanel(panel: PanelName): void {
     this.activePanel = panel
     this.updatePanelWidth()
+  }
+
+  /** 导航到搜索页面并填入关键词 */
+  private navigateToSearch(keyword: string): void {
+    AppStorage.setOrCreate('searchKeyword', keyword)
+    this.activePanel = 'search'
+    this.updatePanelWidth()
+  }
+
+  /** 播放队列长按歌曲弹出操作菜单 */
+  private handleQueueLongPress(song: MusicItem, index: number, event: GestureEvent): void {
+    const pos = DialogPosUtils.fit(DialogPosUtils.fromGesture(event), 300, 480)
+    const contextIndex = index
+    const contextSong = song
+    this.queueSongActionController = new CustomDialogController({
+      builder: SongActionMenu({
+        song: song,
+        isFavorited: false,
+        actions: ['playlist', 'nextPlay', 'favorite', 'download',
+          'sourceSwitch', 'searchSinger', 'searchSong', 'copyName', 'remove'],
+        onAction: (action: string, clickEvent: ClickEvent) => {
+          void clickEvent
+          if (action === 'playlist') {
+            this.activePanel = 'playlist'
+            this.updatePanelWidth()
+          } else if (action === 'nextPlay') {
+            this.player.queue.insertAt(contextSong, this.player.queue.currentIndex + 1)
+            this.getUIContext().getPromptAction().showToast({ message: '已设为下一首播放', duration: 1200 })
+          } else if (action === 'favorite') {
+            PlaylistManager.getInstance().toggleFavorite(contextSong)
+            this.getUIContext().getPromptAction().showToast({ message: '已切换收藏', duration: 1200 })
+          } else if (action === 'remove') {
+            this.player.queue.removeAt(contextIndex)
+            this.getUIContext().getPromptAction().showToast({ message: '已从队列移除', duration: 1200 })
+          } else if (action === 'searchSinger') {
+            this.navigateToSearch(contextSong.singer)
+          } else if (action === 'searchSong') {
+            this.navigateToSearch(contextSong.name)
+          } else if (action === 'copyName') {
+            try {
+              const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN,
+                `${contextSong.name} - ${contextSong.singer}`)
+              pasteboard.getSystemPasteboard().setData(data)
+              this.getUIContext().getPromptAction().showToast({ message: '已复制歌曲名', duration: 1200 })
+            } catch (err) {
+              this.getUIContext().getPromptAction().showToast({ message: '复制失败', duration: 1200 })
+            }
+          } else if (action === 'download') {
+            this.getUIContext().getPromptAction().showToast({ message: '下载功能请在歌单中使用', duration: 1500 })
+          } else if (action === 'sourceSwitch') {
+            this.getUIContext().getPromptAction().showToast({ message: '换源功能请在歌单中使用', duration: 1500 })
+          }
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    this.queueSongActionController.open()
   }
 
   /** 胶囊高亮：activePanel 映射回 tab 名 */

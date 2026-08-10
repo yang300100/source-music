@@ -1,13 +1,22 @@
 import { PlaylistManager } from 'hsp_playlist'
 import { PlayerEngine } from 'hsp_player'
-import { LocalPlaylist, MusicItem } from 'common'
+import { SourceManager } from 'hsp_source'
+import { LocalPlaylist, MusicItem, SourceType, MusicQuality, DownloadUtils } from 'common'
 import { PlaylistNameDialog } from '../components/PlaylistNameDialog'
 import { MusicItemView } from '../components/MusicItemView'
 import { PlaylistSidebar } from '../components/playlist/PlaylistSidebar'
 import { PlaylistHeader } from '../components/playlist/PlaylistHeader'
+import { SongActionMenu } from '../components/common/SongActionMenu'
 import { SongPositionDialog } from '../components/playlist/SongPositionDialog'
+import { PlaylistPickerDialog } from '../components/common/PlaylistPickerDialog'
+import { SourcePickerDialog } from '../components/common/SourcePickerDialog'
 import { AppActionDialog, AppDialogAction } from '../components/common/AppActionDialog'
 import { DialogPosition, DialogPosUtils } from '../utils/DialogPosUtils'
+import { ThemeColors } from '../theme/ThemeColors'
+import { pasteboard } from '@kit.BasicServicesKit'
+import { systemShare } from '@kit.ShareKit'
+import { uniformTypeDescriptor } from '@kit.ArkData'
+import { common } from '@kit.AbilityKit'
 import { picker, fileIo } from '@kit.CoreFileKit'
 import { util } from '@kit.ArkTS'
 import { MotionTokens } from '../theme/MotionTokens'
@@ -24,13 +33,15 @@ export struct PlaylistListContent {
   @Prop panelSide: string = 'left'
   /** 竖屏模式：进入时默认打开第一个歌单 */
   @Prop portrait: boolean = false
+  /** 导航到搜索页面回调 */
+  onNavigateSearch: (keyword: string) => void = (keyword: string) => {}
   private playlistMgr: PlaylistManager = PlaylistManager.getInstance()
   private refreshTimer: number = -1
   private nameDialog: CustomDialogController | null = null
   /** 重命名对话框（成员保持引用，避免局部 controller 被 GC） */
   private renameDialog: CustomDialogController | null = null
   private actionDialogController: CustomDialogController | null = null
-  private positionDialogController: CustomDialogController | null = null
+  private songActionController: CustomDialogController | null = null
   private dialogPosition: DialogPosition = new DialogPosition()
 
   aboutToAppear(): void {
@@ -177,19 +188,88 @@ export struct PlaylistListContent {
     })
   }
 
-  /** 长按歌曲：弹出序号输入对话框，将歌曲移动到目标位置 */
-  private showPositionDialog(song: MusicItem, currentIndex: number, event: GestureEvent): void {
+  /** 长按歌曲：弹出操作菜单 */
+  private showSongActionMenu(song: MusicItem, index: number, event: GestureEvent): void {
     const pl = this.playlist
     if (!pl) return
-    const pos = DialogPosUtils.fromGesture(event)
-    this.dialogPosition = DialogPosUtils.fit(pos, 300, 280)
-    this.positionDialogController = new CustomDialogController({
+    const pos = DialogPosUtils.fit(DialogPosUtils.fromGesture(event), 300, 500)
+    // 存储当前长按上下文，供回调使用
+    const contextIndex = index
+    const contextSong = song
+    this.songActionController = new CustomDialogController({
+      builder: SongActionMenu({
+        song: song,
+        isFavorited: false,
+        actions: ['playlist', 'nextPlay', 'favorite', 'download', 'share',
+          'sourceSwitch', 'searchSinger', 'searchSong', 'copyName',
+          'setPosition', 'remove'],
+        onAction: (action: string, clickEvent: ClickEvent) => {
+          this.handleSongAction(action, clickEvent, contextSong, contextIndex)
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    this.songActionController.open()
+  }
+
+  /** 处理歌曲操作菜单回调 */
+  private handleSongAction(action: string, event: ClickEvent, song: MusicItem, index: number): void {
+    const pl = this.playlist
+    const toast = this.getUIContext().getPromptAction()
+    if (action === 'playlist') {
+      this.showSongPlaylistPicker(song, event)
+    } else if (action === 'nextPlay') {
+      PlayerEngine.getInstance().queue.insertAt(song, PlayerEngine.getInstance().queue.currentIndex + 1)
+      toast.showToast({ message: '已设为下一首播放', duration: 1200 })
+    } else if (action === 'favorite') {
+      PlaylistManager.getInstance().toggleFavorite(song).then((fav: boolean) => {
+        toast.showToast({ message: fav ? '已收藏' : '已取消收藏', duration: 1200 })
+        this.playlists = this.playlistMgr.getAll()
+      })
+    } else if (action === 'download') {
+      this.downloadSongFromPlaylist(song)
+    } else if (action === 'share') {
+      this.shareSongFromPlaylist(song)
+    } else if (action === 'sourceSwitch') {
+      this.switchSongSourceInPlaylist(song, event)
+    } else if (action === 'searchSinger') {
+      this.onNavigateSearch(song.singer)
+    } else if (action === 'searchSong') {
+      this.onNavigateSearch(song.name)
+    } else if (action === 'copyName') {
+      try {
+        const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, `${song.name} - ${song.singer}`)
+        pasteboard.getSystemPasteboard().setData(data)
+        toast.showToast({ message: '已复制歌曲名', duration: 1200 })
+      } catch (err) {
+        toast.showToast({ message: '复制失败', duration: 1200 })
+      }
+    } else if (action === 'setPosition') {
+      this.showSongPositionDialog(song, index, event)
+    } else if (action === 'remove' && pl) {
+      PlaylistManager.getInstance().removeSongs(pl.id, [index]).then(() => {
+        this.playlist = PlaylistManager.getInstance().getById(pl.id) ?? null
+        this.playlists = this.playlistMgr.getAll()
+        toast.showToast({ message: '已从歌单移除', duration: 1200 })
+      })
+    }
+  }
+
+  /** 序号输入对话框 */
+  private showSongPositionDialog(song: MusicItem, index: number, event: ClickEvent): void {
+    const pl = this.playlist
+    if (!pl) return
+    this.dialogPosition = DialogPosUtils.fromClickForDialog(event, 300, 280)
+    const ctrl = new CustomDialogController({
       builder: SongPositionDialog({
         songName: song.name,
-        currentPosition: currentIndex + 1,
+        currentPosition: index + 1,
         totalSongs: pl.songs.length,
         onConfirm: (targetIndex: number) => {
-          PlaylistManager.getInstance().moveSong(pl.id, currentIndex, targetIndex).then(() => {
+          PlaylistManager.getInstance().moveSong(pl.id, index, targetIndex).then(() => {
             this.playlist = PlaylistManager.getInstance().getById(pl.id) ?? null
             this.playlists = this.playlistMgr.getAll()
           })
@@ -200,7 +280,163 @@ export struct PlaylistListContent {
       offset: { dx: this.dialogPosition.x, dy: this.dialogPosition.y },
       customStyle: true
     })
-    this.positionDialogController.open()
+    ctrl.open()
+  }
+
+  /** 添加到歌单选择器 */
+  private showSongPlaylistPicker(song: MusicItem, event: ClickEvent): void {
+    const playlists = this.playlistMgr.getAll()
+    const height = Math.min(500, 120 + (playlists.length + 1) * 52)
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, height)
+    const ctrl = new CustomDialogController({
+      builder: PlaylistPickerDialog({
+        song: song,
+        playlists: playlists,
+        onPick: (id: string, pickEvent: ClickEvent) => {
+          if (id === 'new') {
+            setTimeout(() => { this.showCreateDialog(pickEvent) }, 200)
+            return
+          }
+          const target = playlists.find((item: LocalPlaylist) => item.id === id)
+          PlaylistManager.getInstance().addSongs(id, [song]).then((ok: boolean) => {
+            this.getUIContext().getPromptAction().showToast({
+              message: ok ? `已添加到「${target?.name ?? '歌单'}」` : '添加失败',
+              duration: 1200
+            })
+          })
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    ctrl.open()
+  }
+
+  /** 歌曲换源选择器 */
+  private async switchSongSourceInPlaylist(song: MusicItem, event: ClickEvent): Promise<void> {
+    const toast = this.getUIContext().getPromptAction()
+    const sources = await SourceManager.getInstance().getSearchSources()
+    const searchSources = sources.filter((s) => s.info.id !== 'local_source' && s.info.id !== 'demo')
+    if (searchSources.length <= 1) {
+      toast.showToast({ message: '暂无可切换的搜索源', duration: 1500 })
+      return
+    }
+    const pos = DialogPosUtils.fromClickForDialog(event, 320, 440)
+    const ctrl = new CustomDialogController({
+      builder: SourcePickerDialog({
+        songName: song.name,
+        searchSources: searchSources,
+        currentSourceId: song.source,
+        onPick: (sourceId: string) => {
+          this.performSourceSwitch(song, sourceId)
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    ctrl.open()
+  }
+
+  private async performSourceSwitch(song: MusicItem, sourceId: string): Promise<void> {
+    if (sourceId === song.source) {
+      this.getUIContext().getPromptAction().showToast({ message: '已是当前音源', duration: 1500 })
+      return
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '正在切换音源...', duration: 1500 })
+    const target = await SourceManager.getInstance().searchSameSongInSource(song, sourceId, '')
+    if (!target) {
+      this.getUIContext().getPromptAction().showToast({ message: '未找到可播放版本', duration: 1500 })
+      return
+    }
+    PlaylistManager.getInstance().updateSongSource(song, target)
+    this.playlists = this.playlistMgr.getAll()
+    const pl = this.playlist
+    if (pl) {
+      this.playlist = PlaylistManager.getInstance().getById(pl.id) ?? null
+    }
+    this.getUIContext().getPromptAction().showToast({ message: '已切换音源', duration: 1500 })
+  }
+
+  /** 下载歌曲 */
+  private async downloadSongFromPlaylist(song: MusicItem): Promise<void> {
+    const toast = this.getUIContext().getPromptAction()
+    toast.showToast({ message: '获取下载地址...', duration: 1500 })
+    try {
+      const info = await SourceManager.getInstance().getMusicInfoWithFallback(
+        song.songmid, song.source, MusicQuality.HIGH, song)
+      if (!info) { toast.showToast({ message: '获取下载地址失败', duration: 1500 }); return }
+      const qualityKey = Object.keys(info.types)[0]
+      const url = info.types[qualityKey]?.url ?? ''
+      if (!url) { toast.showToast({ message: '暂无可用下载地址', duration: 1500 }); return }
+      toast.showToast({ message: '开始下载...', duration: 1500 })
+      const filePath = await DownloadUtils.downloadToLocal(song, url)
+      if (filePath) { toast.showToast({ message: '下载完成', duration: 2000 }) }
+      else { toast.showToast({ message: '下载失败', duration: 2000 }) }
+    } catch (err) { toast.showToast({ message: '下载失败', duration: 2000 }) }
+  }
+
+  /** 分享歌曲 */
+  private shareSongFromPlaylist(song: MusicItem): void {
+    try {
+      const data = new systemShare.SharedData({
+        utd: uniformTypeDescriptor.UniformDataType.PLAIN_TEXT,
+        content: `${song.name} - ${song.singer}`,
+        title: '分享歌曲',
+        description: `推荐一首歌：${song.name} - ${song.singer}`
+      })
+      const ctrl = new systemShare.ShareController(data)
+      const hostCtx = this.getUIContext().getHostContext()
+      if (hostCtx) {
+        ctrl.show(hostCtx as common.UIAbilityContext, {
+          selectionMode: systemShare.SelectionMode.SINGLE,
+          previewMode: systemShare.SharePreviewMode.DEFAULT
+        })
+      }
+    } catch (err) {
+      this.getUIContext().getPromptAction().showToast({ message: '分享失败', duration: 1500 })
+    }
+  }
+
+  /** 导入本地音频文件到歌单 */
+  private async importLocalToPlaylist(playlistId: string, event: ClickEvent): Promise<void> {
+    void event
+    const pl = this.playlistMgr.getById(playlistId)
+    if (!pl) return
+    try {
+      const documentPicker = new picker.DocumentViewPicker()
+      const uris = await documentPicker.select({
+        maxSelectNumber: 50,
+        defaultFilePathUri: ''
+      })
+      if (!uris || uris.length === 0) return
+      const songs: MusicItem[] = []
+      for (let i = 0; i < uris.length; i++) {
+        const uri = uris[i]
+        const name = uri.substring(uri.lastIndexOf('/') + 1)
+        const cleanName = decodeURIComponent(name).replace(/\.(mp3|flac|wav|ogg|aac|m4a|wma)$/i, '')
+        songs.push({
+          songmid: `local_${uri}`,
+          name: cleanName,
+          singer: '本地文件',
+          albumName: '',
+          interval: 0,
+          imgUrl: '',
+          lyricUrl: '',
+          source: SourceType.LOCAL,
+          types: { '320k': { url: uri, size: 0, br: 320 } }
+        })
+      }
+      await PlaylistManager.getInstance().addSongs(playlistId, songs)
+      this.playlists = this.playlistMgr.getAll()
+      this.playlist = this.playlistMgr.getById(playlistId) ?? null
+      this.getUIContext().getPromptAction().showToast({ message: `已导入 ${songs.length} 首本地歌曲`, duration: 1500 })
+    } catch (err) {
+      this.getUIContext().getPromptAction().showToast({ message: '导入取消或失败', duration: 1500 })
+    }
   }
 
   build() {
@@ -227,14 +463,14 @@ export struct PlaylistListContent {
                     Text(`${index + 1}`)
                       .fontSize(11).fontColor(this.secondaryText)
                       .width(18).textAlign(TextAlign.Center)
-                    MusicItemView({ song: song, queueSongs: this.playlist!.songs })
+                    MusicItemView({ song: song, queueSongs: this.playlist!.songs, showCover: false })
                       .layoutWeight(1)
                   }
                   .width('100%')
                 }
                 .swipeAction({ end: { builder: () => { this.DeleteSongBuilder(index) } } })
                 .gesture(LongPressGesture({ repeat: false }).onAction((event: GestureEvent) => {
-                  this.showPositionDialog(song, index, event)
+                  this.showSongActionMenu(song, index, event)
                 }))
                 .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
                   delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
@@ -263,7 +499,8 @@ export struct PlaylistListContent {
             onSelect: (id: string) => { this.selectPlaylist(id) },
             onRename: (id: string, event: ClickEvent) => { this.renamePlaylist(id, event) },
             onDelete: (id: string, event: ClickEvent) => { this.deletePlaylist(id, event) },
-            onMove: (id: string, direction: number) => { this.movePlaylist(id, direction) }
+            onMove: (id: string, direction: number) => { this.movePlaylist(id, direction) },
+            onImportLocal: (id: string, event: ClickEvent) => { this.importLocalToPlaylist(id, event) }
           })
         }
         .width(160)
@@ -295,14 +532,14 @@ export struct PlaylistListContent {
                     Text(`${index + 1}`)
                       .fontSize(11).fontColor(this.secondaryText)
                       .width(18).textAlign(TextAlign.Center)
-                    MusicItemView({ song: song, queueSongs: this.playlist!.songs })
+                    MusicItemView({ song: song, queueSongs: this.playlist!.songs, showCover: false })
                       .layoutWeight(1)
                   }
                   .width('100%')
                 }
                 .swipeAction({ end: { builder: () => { this.DeleteSongBuilder(index) } } })
                 .gesture(LongPressGesture({ repeat: false }).onAction((event: GestureEvent) => {
-                  this.showPositionDialog(song, index, event)
+                  this.showSongActionMenu(song, index, event)
                 }))
                 .transition(TransitionEffect.OPACITY.animation({ duration: MotionTokens.LIST,
                   delay: MotionTokens.staggerDelay(index), curve: Curve.EaseOut })
@@ -331,7 +568,8 @@ export struct PlaylistListContent {
             onSelect: (id: string) => { this.selectPlaylist(id) },
             onRename: (id: string, event: ClickEvent) => { this.renamePlaylist(id, event) },
             onDelete: (id: string, event: ClickEvent) => { this.deletePlaylist(id, event) },
-            onMove: (id: string, direction: number) => { this.movePlaylist(id, direction) }
+            onMove: (id: string, direction: number) => { this.movePlaylist(id, direction) },
+            onImportLocal: (id: string, event: ClickEvent) => { this.importLocalToPlaylist(id, event) }
           })
         }
         .width(160)

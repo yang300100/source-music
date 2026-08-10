@@ -15,6 +15,7 @@ export struct MusicItemView {
   @Prop showSource: boolean = true
   @Prop queueSongs: MusicItem[] = []
   @Prop showAddButton: boolean = false
+  @Prop showCover: boolean = true
   private sourcePickerController: CustomDialogController | null = null
   private playlistPickerController: CustomDialogController | null = null
   private nameDialog: CustomDialogController | null = null
@@ -28,19 +29,21 @@ export struct MusicItemView {
 
   build() {
     Row({ space: 12 }) {
-      if (this.song.imgUrl) {
-        Image(this.song.imgUrl)
-          .width(44).height(44).borderRadius(10)
-          .objectFit(ImageFit.Cover).alt($r('app.media.startIcon'))
-          .interpolation(ImageInterpolation.Low)
-      } else {
-        Stack() {
-          Image($r('app.media.startIcon'))
+      if (this.showCover) {
+        if (this.song.imgUrl) {
+          Image(this.song.imgUrl)
             .width(44).height(44).borderRadius(10)
-            .objectFit(ImageFit.Cover).opacity(0.2)
+            .objectFit(ImageFit.Cover).alt($r('app.media.startIcon'))
+            .interpolation(ImageInterpolation.Low)
+        } else {
+          Stack() {
+            Image($r('app.media.startIcon'))
+              .width(44).height(44).borderRadius(10)
+              .objectFit(ImageFit.Cover).opacity(0.2)
+          }
+          .width(44).height(44).borderRadius(10)
+          .backgroundColor(this.placeholderBg)
         }
-        .width(44).height(44).borderRadius(10)
-        .backgroundColor(this.placeholderBg)
       }
 
       Column({ space: 2 }) {

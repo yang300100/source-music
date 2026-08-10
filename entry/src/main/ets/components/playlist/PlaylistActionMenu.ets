@@ -13,7 +13,7 @@ export struct PlaylistActionMenu {
   controller: CustomDialogController
   /** 歌单名 */
   playlistName: string = ''
-  /** 操作回调：'rename' | 'up' | 'down' | 'delete' */
+  /** 操作回调：'rename' | 'up' | 'down' | 'delete' | 'importLocal' */
   onAction: (action: string, event: ClickEvent) => void = (action: string, event: ClickEvent) => {}
   @State entered: boolean = false
 
@@ -58,6 +58,10 @@ export struct PlaylistActionMenu {
       })
       this.ActionRow('下移', (event: ClickEvent) => {
         this.onAction('down', event)
+        this.controller?.close()
+      })
+      this.ActionRow('导入本地歌曲', (event: ClickEvent) => {
+        this.onAction('importLocal', event)
         this.controller?.close()
       })
       this.ActionRow('删除歌单', (event: ClickEvent) => {

@@ -4,6 +4,7 @@ import { SourceManager } from 'hsp_source'
 import { systemShare } from '@kit.ShareKit'
 import { uniformTypeDescriptor as utd } from '@kit.ArkData'
 import { common } from '@kit.AbilityKit'
+import { pasteboard } from '@kit.BasicServicesKit'
 import {
   PlayerStatus,
   PlayMode,
@@ -11,13 +12,15 @@ import {
   MusicItem,
   LocalPlaylist,
   MusicQuality,
-  DownloadUtils
+  DownloadUtils,
+  SourceInstance
 } from 'common'
 import { LyricView } from '../LyricView'
 import { PlayerSection } from './PlayerSection'
 import { PlayerControls } from './PlayerControls'
 import { SongActionMenu } from '../common/SongActionMenu'
 import { PlaylistPickerDialog } from '../common/PlaylistPickerDialog'
+import { SourcePickerDialog } from '../common/SourcePickerDialog'
 import { DialogPosUtils } from '../../utils/DialogPosUtils'
 import { ThemeColors } from '../../theme/ThemeColors'
 
@@ -62,6 +65,8 @@ export struct NowPlayingPanel {
     alignment: DialogAlignment.Center,
     customStyle: true
   })
+  /** 导航到搜索页面回调 */
+  onNavigateSearch: ((keyword: string) => void) | null = null
   /** 添加歌单弹窗（成员保持引用） */
   private pickerController: CustomDialogController | null = null
 
@@ -157,6 +162,47 @@ export struct NowPlayingPanel {
     }
   }
 
+  /** 歌曲换源 */
+  private async switchSongSource(song: MusicItem, event: ClickEvent): Promise<void> {
+    const toast = this.getUIContext().getPromptAction()
+    const sources = await SourceManager.getInstance().getSearchSources()
+    const searchSources = sources.filter((s: SourceInstance) =>
+      s.info.id !== 'local_source' && s.info.id !== 'demo')
+    if (searchSources.length <= 1) {
+      toast.showToast({ message: '暂无可切换的搜索源', duration: 1500 })
+      return
+    }
+    const pos = DialogPosUtils.fromClickForDialog(event, 320, 440)
+    const ctrl = new CustomDialogController({
+      builder: SourcePickerDialog({
+        songName: song.name,
+        searchSources: searchSources,
+        currentSourceId: song.source,
+        onPick: (sourceId: string) => {
+          if (sourceId === song.source) {
+            toast.showToast({ message: '已是当前音源', duration: 1500 })
+            return
+          }
+          toast.showToast({ message: '正在切换音源...', duration: 1500 })
+          SourceManager.getInstance().searchSameSongInSource(song, sourceId, '').then((target: MusicItem | null) => {
+            if (!target) {
+              toast.showToast({ message: '未找到可播放版本', duration: 1500 })
+              return
+            }
+            PlaylistManager.getInstance().updateSongSource(song, target)
+            PlayerEngine.getInstance().play(target)
+            toast.showToast({ message: '已切换音源', duration: 1500 })
+          })
+        }
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.TopStart,
+      offset: { dx: pos.x, dy: pos.y },
+      customStyle: true
+    })
+    ctrl.open()
+  }
+
   private async toggleFavorite(): Promise<void> {
     const song = this.player.currentSong
     if (!song) return
@@ -211,11 +257,13 @@ export struct NowPlayingPanel {
   private showMoreMenu(event: ClickEvent): void {
     const song = this.player.currentSong
     if (!song) return
-    const pos = DialogPosUtils.fromClickForDialog(event, 300, 390)
+    const pos = DialogPosUtils.fromClickForDialog(event, 300, 500)
     this.actionMenuController = new CustomDialogController({
       builder: SongActionMenu({
         song: song,
         isFavorited: this.isFavorited,
+        actions: ['playlist', 'nextPlay', 'favorite', 'download', 'share',
+          'sourceSwitch', 'searchSinger', 'searchSong', 'copyName'],
         onAction: (action: string, actionEvent: ClickEvent) => { this.handleSongAction(action, actionEvent) }
       }),
       autoCancel: true,
@@ -230,17 +278,32 @@ export struct NowPlayingPanel {
   private handleSongAction(action: string, event: ClickEvent): void {
     const song = this.player.currentSong
     if (!song) return
+    const toast = this.getUIContext().getPromptAction()
     if (action === 'playlist') {
       this.addToPlaylist(song, event)
-    } else if (action === 'next') {
+    } else if (action === 'nextPlay') {
       this.player.queue.insertAt(song, this.player.queue.currentIndex + 1)
-      this.getUIContext().getPromptAction().showToast({ message: '已设为下一首播放', duration: 1200 })
+      toast.showToast({ message: '已设为下一首播放', duration: 1200 })
     } else if (action === 'favorite') {
       this.toggleFavorite()
     } else if (action === 'download') {
       this.downloadSong()
     } else if (action === 'share') {
       this.shareSong(song)
+    } else if (action === 'sourceSwitch') {
+      this.switchSongSource(song, event)
+    } else if (action === 'searchSinger') {
+      if (this.onNavigateSearch) { this.onNavigateSearch(song.singer) }
+    } else if (action === 'searchSong') {
+      if (this.onNavigateSearch) { this.onNavigateSearch(song.name) }
+    } else if (action === 'copyName') {
+      try {
+        const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, `${song.name} - ${song.singer}`)
+        pasteboard.getSystemPasteboard().setData(data)
+        toast.showToast({ message: '已复制歌曲名', duration: 1200 })
+      } catch (err) {
+        toast.showToast({ message: '复制失败', duration: 1200 })
+      }
     }
   }
 

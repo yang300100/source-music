@@ -5,8 +5,18 @@ import { MotionTokens } from '../../theme/MotionTokens'
 /**
  * 歌曲操作菜单（自定义毛玻璃弹窗）
  *
- * 提供：添加到歌单 / 下一首播放 / 收藏 / 下载 等操作。
- * 通过 onAction 回调通知外部。
+ * 通过 actions 数组控制显示哪些操作。支持的操作：
+ *   'playlist'    - 添加到歌单
+ *   'nextPlay'    - 下一首播放
+ *   'favorite'    - 收藏/取消收藏
+ *   'download'    - 下载到本地
+ *   'share'       - 分享歌曲
+ *   'sourceSwitch'- 歌曲换源
+ *   'searchSinger'- 搜索该歌手
+ *   'searchSong'  - 搜索该歌曲
+ *   'copyName'    - 复制歌曲名
+ *   'setPosition' - 调整位置（仅歌单场景）
+ *   'remove'      - 从歌单/队列移除
  */
 @CustomDialog
 export struct SongActionMenu {
@@ -16,7 +26,9 @@ export struct SongActionMenu {
   song: MusicItem | null = null
   /** 是否已收藏 */
   isFavorited: boolean = false
-  /** 操作回调：'playlist' | 'next' | 'favorite' | 'download' */
+  /** 要显示的操作列表 */
+  actions: string[] = ['playlist', 'nextPlay', 'favorite', 'download', 'share']
+  /** 操作回调 */
   onAction: (action: string, event: ClickEvent) => void = (action: string, event: ClickEvent) => {}
   @State entered: boolean = false
 
@@ -29,9 +41,33 @@ export struct SongActionMenu {
   private get dialogBg(): ResourceColor { return this.isDark ? '#701e1a30' : '#88ffffff' }
   private get borderFaint(): ResourceColor { return ThemeColors.dialogBorderFaint(this.isDark) }
   private get rowBg(): ResourceColor { return this.isDark ? '#30181525' : '#90ffffff' }
+  private get dangerColor(): ResourceColor { return '#e86090' }
+
+  /** 操作标签与样式映射 */
+  private actionLabel(action: string): string {
+    switch (action) {
+      case 'playlist': return '添加到歌单'
+      case 'nextPlay': return '下一首播放'
+      case 'favorite': return this.isFavorited ? '取消收藏' : '收藏'
+      case 'download': return '下载到本地'
+      case 'share': return '分享歌曲'
+      case 'sourceSwitch': return '歌曲换源'
+      case 'searchSinger': return '搜索该歌手'
+      case 'searchSong': return '搜索该歌曲'
+      case 'copyName': return '复制歌曲名'
+      case 'setPosition': return '调整位置'
+      case 'remove': return '从列表中移除'
+      default: return action
+    }
+  }
+
+  private isDanger(action: string): boolean {
+    return action === 'remove'
+  }
 
   build() {
     Column({ space: 4 }) {
+      // 头部：歌曲名 + 歌手
       Row({ space: 10 }) {
         Column({ space: 2 }) {
           Text(this.song ? this.song.name : '未知歌曲')
@@ -52,26 +88,12 @@ export struct SongActionMenu {
       .width('100%')
       .padding({ left: 20, right: 12, top: 20, bottom: 8 })
 
-      this.ActionRow('添加到歌单', (event: ClickEvent) => {
-        this.onAction('playlist', event)
-        this.controller?.close()
-      })
-      this.ActionRow('下一首播放', (event: ClickEvent) => {
-        this.onAction('next', event)
-        this.controller?.close()
-      })
-      this.ActionRow(this.isFavorited ? '取消收藏' : '收藏', (event: ClickEvent) => {
-        this.onAction('favorite', event)
-        this.controller?.close()
-      })
-      this.ActionRow('下载到本地', (event: ClickEvent) => {
-        this.onAction('download', event)
-        this.controller?.close()
-      })
-      this.ActionRow('分享歌曲', (event: ClickEvent) => {
-        this.onAction('share', event)
-        this.controller?.close()
-      })
+      ForEach(this.actions, (action: string) => {
+        this.ActionRow(this.actionLabel(action), this.isDanger(action), (event: ClickEvent) => {
+          this.onAction(action, event)
+          this.controller?.close()
+        })
+      }, (action: string) => action)
     }
     .width(300)
     .padding({ left: 8, right: 8, bottom: 16 })
@@ -96,10 +118,10 @@ export struct SongActionMenu {
   }
 
   @Builder
-  ActionRow(label: string, action: (event: ClickEvent) => void) {
+  ActionRow(label: string, danger: boolean, action: (event: ClickEvent) => void) {
     Row() {
       Text(label)
-        .fontSize(15).fontColor(this.primaryText)
+        .fontSize(15).fontColor(danger ? this.dangerColor : this.primaryText)
       Blank()
       Text('›')
         .fontSize(15).fontColor(this.secondaryText)
