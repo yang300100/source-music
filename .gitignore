@@ -13,3 +13,11 @@
 /.cache
 /.deveco
 **/.preview
+/dist
+/.superpowers
+*.p12
+*.p7b
+*.cer
+*.jks
+*.keystore
+build-profile.json5
