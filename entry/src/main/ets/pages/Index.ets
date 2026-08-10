@@ -87,8 +87,8 @@ struct Index {
       // 歌单：未选中时 160vp（与固定侧栏等宽，歌单名不动），选中后扩展显示详情
       width = this.playlistHasSelection ? '34%' : '160vp'
     } else if (this.activePanel === 'settings') {
-      // 设置：未选中分类时 160vp，选中后 34%
-      width = this.settingsHasSelection ? '34%' : '160vp'
+      // 设置：未选中分类时 160vp，选中后 30%
+      width = this.settingsHasSelection ? '30%' : '160vp'
     }
     this.panelWidth = width
   }
